@@ -7,9 +7,12 @@ open System.Text.Json
 type MachineState =
     { BeatmapSetIds: Set<int>
       Settings: Map<string, string>
+      RawSettingsLines: string array
       AutoDownload: bool
       DataPath: string
       SettingsPath: string }
+
+// --- Extraction ---
 
 let extractLocal (dirOverride: string option) : Result<MachineState, string> =
     try
@@ -19,11 +22,13 @@ let extractLocal (dirOverride: string option) : Result<MachineState, string> =
 
         let beatmapSetIds = Realm.readBeatmapSetIds dataPath
 
-        let settings =
+        let rawLines =
             if File.Exists(settingsPath) then
-                Settings.parse settingsPath
+                File.ReadAllLines(settingsPath)
             else
-                Map.empty
+                Array.empty
+
+        let settings = Settings.parseLines rawLines
 
         let autoDownload =
             settings
@@ -34,6 +39,7 @@ let extractLocal (dirOverride: string option) : Result<MachineState, string> =
         Ok
             { BeatmapSetIds = beatmapSetIds
               Settings = settings
+              RawSettingsLines = rawLines
               AutoDownload = autoDownload
               DataPath = dataPath
               SettingsPath = settingsPath }
@@ -62,6 +68,14 @@ let serializeExtractJson (state: MachineState) : string =
 
     writer.WriteEndObject()
 
+    writer.WritePropertyName("rawSettingsLines")
+    writer.WriteStartArray()
+
+    for line in state.RawSettingsLines do
+        writer.WriteStringValue(line)
+
+    writer.WriteEndArray()
+
     writer.WriteBoolean("autoDownload", state.AutoDownload)
     writer.WriteString("dataPath", state.DataPath)
     writer.WriteString("settingsPath", state.SettingsPath)
@@ -86,6 +100,11 @@ let parseExtractJson (json: string) : Result<MachineState, string> =
             |> Seq.map (fun p -> p.Name, p.Value.GetString())
             |> Map.ofSeq
 
+        let rawSettingsLines =
+            root.GetProperty("rawSettingsLines").EnumerateArray()
+            |> Seq.map (fun e -> e.GetString())
+            |> Seq.toArray
+
         let autoDownload = root.GetProperty("autoDownload").GetBoolean()
         let dataPath = root.GetProperty("dataPath").GetString()
         let settingsPath = root.GetProperty("settingsPath").GetString()
@@ -93,20 +112,18 @@ let parseExtractJson (json: string) : Result<MachineState, string> =
         Ok
             { BeatmapSetIds = beatmapSetIds
               Settings = settings
+              RawSettingsLines = rawSettingsLines
               AutoDownload = autoDownload
               DataPath = dataPath
               SettingsPath = settingsPath }
     with ex ->
         Error $"Failed to parse extract JSON: {ex.Message}"
 
+// --- Host resolution ---
+
 type ResolvedHost =
     | Localhost
     | Remote of string
-
-let resolveHost (host: string option) : ResolvedHost =
-    match host with
-    | None -> Localhost
-    | Some h -> Remote h
 
 let extractState (host: ResolvedHost) (dirOverride: string option) (osyncPath: string) : Result<MachineState, string> =
     match host with
@@ -114,10 +131,12 @@ let extractState (host: ResolvedHost) (dirOverride: string option) (osyncPath: s
     | Remote hostname ->
         let cmd =
             match dirOverride with
-            | Some d -> $"{osyncPath} extract --dir '{d}'"
-            | None -> $"{osyncPath} extract"
+            | Some d -> $"{Ssh.shellEscape osyncPath} extract --dir {Ssh.shellEscape d}"
+            | None -> $"{Ssh.shellEscape osyncPath} extract"
 
         Ssh.runRemote hostname cmd |> Result.bind parseExtractJson
+
+// --- Helpers ---
 
 let private mapUrl (id: int) = $"https://osu.ppy.sh/beatmapsets/{id}"
 
@@ -131,7 +150,13 @@ let private promptYesNo (message: string) : bool =
 
 let private promptSettingChoice (diff: Settings.SettingsDiff) (fromLabel: string) (toLabel: string) : char =
     eprintfn ""
-    eprintfn "  %s: %s=%s, %s=%s" diff.Key fromLabel diff.LocalValue toLabel diff.RemoteValue
+
+    match diff.LocalValue, diff.RemoteValue with
+    | Some lv, Some rv -> eprintfn "  %s: %s=%s, %s=%s" diff.Key fromLabel lv toLabel rv
+    | Some lv, None -> eprintfn "  %s: %s=%s, %s=(missing)" diff.Key fromLabel lv toLabel
+    | None, Some rv -> eprintfn "  %s: %s=(missing), %s=%s" diff.Key fromLabel toLabel rv
+    | None, None -> ()
+
     eprintfn "  [F]rom (%s) / [T]o (%s) / [S]kip?" fromLabel toLabel
 
     let rec loop () =
@@ -142,8 +167,8 @@ let private promptSettingChoice (diff: Settings.SettingsDiff) (fromLabel: string
         | null -> 'S'
         | s ->
             match s.Trim().ToUpperInvariant() with
-            | "F" -> 'L' // 'L' = local/from side in applyChoice
-            | "T" -> 'R' // 'R' = remote/to side in applyChoice
+            | "F" -> 'L'
+            | "T" -> 'R'
             | "S" -> 'S'
             | _ ->
                 eprintfn "  Invalid choice. Enter F, T, or S."
@@ -151,8 +176,14 @@ let private promptSettingChoice (diff: Settings.SettingsDiff) (fromLabel: string
 
     loop ()
 
-let private writeSettings (host: ResolvedHost) (path: string) (settings: Map<string, string>) : Result<unit, string> =
-    let content = Settings.serialize settings
+let private writeSettings
+    (host: ResolvedHost)
+    (path: string)
+    (rawLines: string array)
+    (updates: Map<string, string>)
+    : Result<unit, string> =
+    let patched = Settings.patchLines rawLines updates
+    let content = String.Join("\n", patched)
 
     match host with
     | Localhost ->
@@ -165,7 +196,9 @@ let private writeSettings (host: ResolvedHost) (path: string) (settings: Map<str
 
 let private enableAutoDownload (host: ResolvedHost) (state: MachineState) : Result<unit, string> =
     let updated = Map.add "AutomaticallyDownloadMissingBeatmaps" "True" state.Settings
-    writeSettings host state.SettingsPath updated
+    writeSettings host state.SettingsPath state.RawSettingsLines updated
+
+// --- Run modes ---
 
 type SyncMode =
     | Sync
@@ -214,31 +247,54 @@ let private printBeatmapDiffs (fromState: MachineState) (toState: MachineState) 
 
     (missingOnFrom, missingOnTo)
 
+let private updateAutoDownload (state: MachineState) : MachineState =
+    let key = "AutomaticallyDownloadMissingBeatmaps"
+
+    { state with
+        Settings = Map.add key "True" state.Settings
+        RawSettingsLines = Settings.patchLines state.RawSettingsLines (Map.add key "True" state.Settings)
+        AutoDownload = true }
+
 let private handleAutoDownload
     (config: RunConfig)
     (fromState: MachineState)
     (toState: MachineState)
     (missingOnFrom: Set<int>)
     (missingOnTo: Set<int>)
-    =
+    : bool * MachineState * MachineState =
+    let mutable hadError = false
+    let mutable from = fromState
+    let mutable ``to`` = toState
+
     if not (Set.isEmpty missingOnTo) && not toState.AutoDownload then
         eprintfn ""
 
         if promptYesNo $"  AutomaticallyDownloadMissingBeatmaps is disabled on {config.ToLabel}. Enable it?" then
-            match enableAutoDownload config.ToHost toState with
+            ``to`` <- updateAutoDownload ``to``
+
+            match enableAutoDownload config.ToHost ``to`` with
             | Ok() -> eprintfn "  Enabled auto-download on %s." config.ToLabel
-            | Error e -> eprintfn "  Error enabling auto-download on %s: %s" config.ToLabel e
+            | Error e ->
+                eprintfn "  Error enabling auto-download on %s: %s" config.ToLabel e
+                hadError <- true
 
     if not (Set.isEmpty missingOnFrom) && not fromState.AutoDownload then
         eprintfn ""
 
         if promptYesNo $"  AutomaticallyDownloadMissingBeatmaps is disabled on {config.FromLabel}. Enable it?" then
-            match enableAutoDownload config.FromHost fromState with
-            | Ok() -> eprintfn "  Enabled auto-download on %s." config.FromLabel
-            | Error e -> eprintfn "  Error enabling auto-download on %s: %s" config.FromLabel e
+            from <- updateAutoDownload from
 
-let private handleSettingsDiff (config: RunConfig) (fromState: MachineState) (toState: MachineState) =
+            match enableAutoDownload config.FromHost from with
+            | Ok() -> eprintfn "  Enabled auto-download on %s." config.FromLabel
+            | Error e ->
+                eprintfn "  Error enabling auto-download on %s: %s" config.FromLabel e
+                hadError <- true
+
+    (hadError, from, ``to``)
+
+let private handleSettingsDiff (config: RunConfig) (fromState: MachineState) (toState: MachineState) : bool =
     let diffs = Settings.diff fromState.Settings toState.Settings
+    let mutable hadError = false
 
     eprintfn ""
     eprintfn "=== Settings Differences ==="
@@ -251,7 +307,11 @@ let private handleSettingsDiff (config: RunConfig) (fromState: MachineState) (to
         match config.Mode with
         | Diff ->
             for d in diffs do
-                eprintfn "  %s: %s=%s, %s=%s" d.Key config.FromLabel d.LocalValue config.ToLabel d.RemoteValue
+                match d.LocalValue, d.RemoteValue with
+                | Some lv, Some rv -> eprintfn "  %s: %s=%s, %s=%s" d.Key config.FromLabel lv config.ToLabel rv
+                | Some lv, None -> eprintfn "  %s: %s=%s, %s=(missing)" d.Key config.FromLabel lv config.ToLabel
+                | None, Some rv -> eprintfn "  %s: %s=(missing), %s=%s" d.Key config.FromLabel config.ToLabel rv
+                | None, None -> ()
         | Sync ->
             let choices =
                 diffs
@@ -269,17 +329,25 @@ let private handleSettingsDiff (config: RunConfig) (fromState: MachineState) (to
                     eprintfn ""
                     eprintfn "  Writing updated settings to %s..." config.FromLabel
 
-                    match writeSettings config.FromHost fromState.SettingsPath updatedFrom with
+                    match
+                        writeSettings config.FromHost fromState.SettingsPath fromState.RawSettingsLines updatedFrom
+                    with
                     | Ok() -> eprintfn "  Done."
-                    | Error e -> eprintfn "  Error: %s" e
+                    | Error e ->
+                        eprintfn "  Error: %s" e
+                        hadError <- true
 
                 if updatedTo <> toState.Settings then
                     eprintfn ""
                     eprintfn "  Writing updated settings to %s..." config.ToLabel
 
-                    match writeSettings config.ToHost toState.SettingsPath updatedTo with
+                    match writeSettings config.ToHost toState.SettingsPath toState.RawSettingsLines updatedTo with
                     | Ok() -> eprintfn "  Done."
-                    | Error e -> eprintfn "  Error: %s" e
+                    | Error e ->
+                        eprintfn "  Error: %s" e
+                        hadError <- true
+
+    hadError
 
 let run (config: RunConfig) : int =
     eprintfn "Extracting state from %s..." config.FromLabel
@@ -299,12 +367,26 @@ let run (config: RunConfig) : int =
         let (missingOnFrom, missingOnTo) =
             printBeatmapDiffs fromState toState config.FromLabel config.ToLabel
 
+        let mutable hadError = false
+        let mutable from = fromState
+        let mutable ``to`` = toState
+
         match config.Mode with
-        | Sync -> handleAutoDownload config fromState toState missingOnFrom missingOnTo
+        | Sync ->
+            let (err, f, t) = handleAutoDownload config from ``to`` missingOnFrom missingOnTo
+            hadError <- err
+            from <- f
+            ``to`` <- t
         | Diff -> ()
 
-        handleSettingsDiff config fromState toState
+        if handleSettingsDiff config from ``to`` then
+            hadError <- true
 
         eprintfn ""
-        eprintfn "Done."
-        0
+
+        if hadError then
+            eprintfn "Done with errors."
+            1
+        else
+            eprintfn "Done."
+            0
