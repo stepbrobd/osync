@@ -49,7 +49,7 @@ let copyRealmToTemp (host: string option) (remoteDataPath: string) : Result<stri
     match host with
     | None ->
         try
-            let src = Path.Combine(remoteDataPath, "client.realm")
+            let src = Realm.findRealmPath remoteDataPath
             File.Copy(src, tempPath)
             Ok tempPath
         with ex ->
