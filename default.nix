@@ -1,6 +1,9 @@
 { lib
 , buildDotnetModule
 , dotnetCorePackages
+, makeWrapper
+, openssh
+, rsync
 }:
 
 buildDotnetModule {
@@ -28,6 +31,13 @@ buildDotnetModule {
   };
 
   nugetDeps = ./nuget.json;
+
+  nativeBuildInputs = [ makeWrapper ];
+
+  postFixup = ''
+    wrapProgram $out/bin/osync \
+      --prefix PATH : ${lib.makeBinPath [ openssh rsync ]}
+  '';
 
   executables = [ "osync" ];
 }
