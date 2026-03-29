@@ -1,25 +1,29 @@
 # osync!
 
-This tool does not try to be a backup system, it does not try to transfer
-beatmap files, and it does not try to be clever about conflict resolution. It
-reads the parts of lazer state that actually matter (what I think) across
-machines, shows the differences, and patches the local `game.ini` files you
-explicitly choose to converge.
+Sync osu! lazer state between machines. It reads the realm database and
+`game.ini`, shows differences, and transfers what is missing.
 
-This is meant to be a very small tool:
+What it does:
 
 - compare beatmap set ids between two hosts
-- show missing beatmap set URLs
+- compare skins between two hosts
+- sync missing beatmaps by copying realm entries and hashed files
+- sync missing skins the same way
 - interactively diff and sync selected `game.ini` keys
 - preserve comments and blank lines when patching `game.ini`
-- use SSH for remote extraction and remote writes
-- expose a small `extract` command used internally over SSH
+- use SSH for remote extraction, rsync for file transfer
 
-The tool read 2 files:
+The tool reads 2 files:
 
 **`client.realm`**: it opens the realm database dynamically, walks the
 `BeatmapSet` objects, filters out entries with `DeletePending = true`, and keeps
-only positive `OnlineID` values. The result is a set of beatmap set ids.
+only positive `OnlineID` values. It also reads `Skin` objects, filtering out
+deleted and built-in (protected) skins. During sync, it reads full object data
+from the source realm and writes missing entries to the destination realm.
+
+osu! uses versioned realm files (`client_{N}.realm`) in debug builds and plain
+`client.realm` in release builds. osync checks for both, preferring the
+versioned file if it exists.
 
 **`game.ini`**: it parses setting lines by splitting on the first `=` only.
 Malformed lines are ignored. Blank lines, comments, and other non-setting lines
@@ -28,6 +32,7 @@ are carried through untouched when the file is later patched.
 The extracted JSON includes:
 
 - `beatmapSetIds`
+- `skinIdentifiers`
 - `settings`
 - `rawSettingsLines`
 - `autoDownload`
@@ -36,6 +41,20 @@ The extracted JSON includes:
 
 `rawSettingsLines` exists so the patching pass can preserve file structure
 instead of regenerating `game.ini` from a map and throwing everything else away.
+
+Beatmap and skin sync works by copying the source `client.realm` to a temp file,
+opening both realms, reading full object data for missing items, rsyncing the
+hashed files from the source `files/` directory, and writing the realm entries
+on the destination. osu! stores files using SHA-256 hashes in a nested directory
+structure (`files/{hash[0]}/{hash[0:2]}/{hash}`), so rsync only transfers files
+the destination does not already have.
+
+Beatmaps are identified by `OnlineID`. Skins are identified by content hash and
+displayed by name. Built-in skins (argon, classic, etc.) are skipped.
+
+The sync is one-directional: from `--from` to `--to`. Run it in reverse for the
+other direction. osu! must not be running on the destination when syncing,
+because realm locks the database file.
 
 Settings sync is interactive. For each difference you get:
 
@@ -78,9 +97,11 @@ else, pass `--dir` / `--from-dir` / `--to-dir`.
 
 This project does not currently try to support Windows path discovery.
 
-Remote operations go through plain `ssh`. The remote host is expected to have an
-`osync` binary available in `PATH`, unless you override it with `--from-osync`,
-`--to-osync`, `--between-osync`, or `--and-osync`.
+Remote operations go through plain `ssh`. File transfer uses `rsync` with
+`--files-from` to only copy the specific hashed files that are missing. The
+remote host is expected to have an `osync` binary available in `PATH`, unless
+you override it with `--from-osync`, `--to-osync`, `--between-osync`, or
+`--and-osync`.
 
 The remote protocol is just `osync extract` over SSH with JSON on stdout. It is
 not versioned. In practice you should run the same osync build on both sides.
@@ -97,6 +118,12 @@ Compare local machine with a remote host:
 
 ```bash
 osync diff --and desktop
+```
+
+Sync from a remote host to local machine:
+
+```bash
+osync sync --from macbook
 ```
 
 Sync local machine to a remote host:
