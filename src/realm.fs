@@ -160,7 +160,7 @@ let private readUser (obj: IEmbeddedObject) : UserData =
       Username = obj.DynamicApi.Get<string>("Username")
       CountryCode = obj.DynamicApi.Get<string>("CountryCode") }
 
-let private readMetadata (obj: IEmbeddedObject) : MetadataData =
+let private readMetadata (obj: IRealmObjectBase) : MetadataData =
     { Title = obj.DynamicApi.Get<string>("Title")
       TitleUnicode = obj.DynamicApi.Get<string>("TitleUnicode")
       Artist = obj.DynamicApi.Get<string>("Artist")
@@ -201,7 +201,7 @@ let private readBeatmap (obj: IRealmObject) : BeatmapData =
       LastLocalUpdate = obj.DynamicApi.Get<Nullable<DateTimeOffset>>("LastLocalUpdate")
       LastOnlineUpdate = obj.DynamicApi.Get<Nullable<DateTimeOffset>>("LastOnlineUpdate")
       LastPlayed = obj.DynamicApi.Get<Nullable<DateTimeOffset>>("LastPlayed")
-      Metadata = readMetadata (obj.DynamicApi.Get<IEmbeddedObject>("Metadata"))
+      Metadata = readMetadata (obj.DynamicApi.Get<IRealmObject>("Metadata"))
       Difficulty = readDifficulty (obj.DynamicApi.Get<IEmbeddedObject>("Difficulty"))
       Offset =
         let us = obj.DynamicApi.Get<IEmbeddedObject>("UserSettings")
@@ -263,7 +263,7 @@ let private writeUser (realm: Realm) (parent: IRealmObjectBase) (propName: strin
     obj.DynamicApi.Set("CountryCode", user.CountryCode)
 
 let private writeMetadata (realm: Realm) (parent: IRealmObjectBase) (m: MetadataData) =
-    let obj = realm.DynamicApi.CreateEmbeddedObjectForProperty(parent, "Metadata")
+    let obj = realm.DynamicApi.CreateObject("BeatmapMetadata")
     obj.DynamicApi.Set("Title", m.Title)
     obj.DynamicApi.Set("TitleUnicode", m.TitleUnicode)
     obj.DynamicApi.Set("Artist", m.Artist)
@@ -274,6 +274,7 @@ let private writeMetadata (realm: Realm) (parent: IRealmObjectBase) (m: Metadata
     obj.DynamicApi.Set("AudioFile", m.AudioFile)
     obj.DynamicApi.Set("BackgroundFile", m.BackgroundFile)
     writeUser realm obj "Author" m.Author
+    parent.DynamicApi.Set("Metadata", RealmValue.Object(obj))
 
 let private writeDifficulty (realm: Realm) (parent: IRealmObjectBase) (d: DifficultyData) =
     let obj = realm.DynamicApi.CreateEmbeddedObjectForProperty(parent, "Difficulty")
