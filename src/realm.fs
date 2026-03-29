@@ -323,6 +323,8 @@ let private writeBeatmap (realm: Realm) (setObj: IRealmObjectBase) (b: BeatmapDa
     if ruleset <> null then
         obj.DynamicApi.Set("Ruleset", RealmValue.Object(ruleset))
 
+    obj.DynamicApi.Set("BeatmapSet", RealmValue.Object(setObj))
+
     writeMetadata realm obj b.Metadata
     writeDifficulty realm obj b.Difficulty
     writeUserSettings realm obj b.Offset
