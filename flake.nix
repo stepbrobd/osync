@@ -36,7 +36,7 @@
 
           pname = "osync";
           projectFile = "osync.fsproj";
-          version = builtins.readFile ./version.txt;
+          version = lib.fileContents ./version.txt;
 
           src = lib.fileset.toSource {
             root = ./.;
