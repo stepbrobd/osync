@@ -116,24 +116,21 @@ let rsyncFiles
                 | _ -> (srcFilesDir + "/", destFilesDir + "/", [])
 
             let psi =
-                ProcessStartInfo(
-                    "rsync",
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true
-                )
+                ProcessStartInfo("rsync", UseShellExecute = false, RedirectStandardOutput = true)
 
-            for arg in [ "-av" ] @ extraArgs @ [ "--files-from"; listFile; srcFiles; destFiles ] do
+            for arg in
+                [ "-a"; "--info=progress2" ]
+                @ extraArgs
+                @ [ "--files-from"; listFile; srcFiles; destFiles ] do
                 psi.ArgumentList.Add(arg)
 
             use proc = Process.Start(psi)
             let _stdout = proc.StandardOutput.ReadToEnd()
-            let stderr = proc.StandardError.ReadToEnd()
             proc.WaitForExit()
 
             match proc.ExitCode with
             | 0 -> Ok()
-            | _ -> Error $"rsync failed: {stderr}"
+            | _ -> Error "rsync failed (see output above)"
         finally
             if File.Exists(listFile) then
                 File.Delete(listFile)
