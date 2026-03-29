@@ -1,0 +1,7 @@
+*.xml
+*.xsd
+.direnv
+.nuget
+bin
+obj
+result
