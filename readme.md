@@ -63,6 +63,17 @@ displayed by name. Built-in skins (argon, classic, etc.) are skipped. Scores are
 identified by their content hash and linked to the local beatmap by
 `BeatmapHash` if the matching beatmap exists on the destination.
 
+The following realm data is intentionally not synced:
+
+- **collections**: beatmap groupings are identified by name and contain MD5 hash
+  lists. Easy to add if needed.
+- **mod presets**: named mod combinations with a ruleset reference and JSON mods
+  string. Easy to add if needed.
+- **key bindings**: per-machine by nature. Syncing them would overwrite
+  intentional per-device customizations.
+- **ruleset settings**: per-ruleset config values. Already covered by `game.ini`
+  sync where applicable.
+
 The sync is one-directional: from `--from` to `--to`. Run it in reverse for the
 other direction. osu! must not be running on the destination when syncing,
 because realm locks the database file.
