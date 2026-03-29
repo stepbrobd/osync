@@ -5,7 +5,14 @@
     <Version>$([System.IO.File]::ReadAllText('$(MSBuildThisFileDirectory)version.txt').Trim())</Version>
   </PropertyGroup>
   <ItemGroup>
+    <Compile Include="src/realm.fs" />
+    <Compile Include="src/settings.fs" />
+    <Compile Include="src/ssh.fs" />
+    <Compile Include="src/sync.fs" />
+    <Compile Include="src/program.fs" />
   </ItemGroup>
   <ItemGroup>
+    <PackageReference Include="Argu" Version="6.2.5" />
+    <PackageReference Include="Realm" Version="20.1.0" />
   </ItemGroup>
 </Project>
