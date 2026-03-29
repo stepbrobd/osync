@@ -37,17 +37,22 @@ The extracted JSON includes:
 - `rawSettingsLines`
 - `autoDownload`
 - `dataPath`
+- `realmPath`
 - `settingsPath`
 
 `rawSettingsLines` exists so the patching pass can preserve file structure
 instead of regenerating `game.ini` from a map and throwing everything else away.
 
 Beatmap and skin sync works by copying the source `client.realm` to a temp file,
-opening both realms, reading full object data for missing items, rsyncing the
-hashed files from the source `files/` directory, and writing the realm entries
-on the destination. osu! stores files using SHA-256 hashes in a nested directory
-structure (`files/{hash[0]}/{hash[0:2]}/{hash}`), so rsync only transfers files
-the destination does not already have.
+reading full object data for missing items, rsyncing the hashed files, and
+writing the realm entries on the destination. osu! stores files using SHA-256
+hashes in a nested directory structure (`files/{hash[0]}/{hash[0:2]}/{hash}`),
+so rsync only transfers files the destination does not already have.
+
+When the destination is remote, the source realm is copied to a temp file on the
+remote host, and `osync import --source-realm <path>` is run over SSH to write
+the entries there. This mirrors the existing `extract` pattern: `extract` reads
+state over SSH, `import` writes state over SSH.
 
 Beatmaps are identified by `OnlineID`. Skins are identified by content hash and
 displayed by name. Built-in skins (argon, classic, etc.) are skipped.
@@ -160,3 +165,14 @@ osync extract --dir /some/other/osu/path
 ```
 
 `extract` exists mostly for the SSH path, but it is also useful for debugging.
+
+Import missing beatmaps and skins from a source realm file:
+
+```bash
+osync import --source-realm /tmp/source.realm
+osync import --source-realm /tmp/source.realm --dir /some/other/osu/path
+```
+
+`import` is used internally by the remote destination sync path. It reads
+missing items from the source realm and writes them to the local realm. You
+generally do not need to call this directly.
