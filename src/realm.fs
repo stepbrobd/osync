@@ -225,3 +225,136 @@ let readSkins (realm: Realm) (hashes: Set<string>) : SkinData list =
           Hash = obj.DynamicApi.Get<string>("Hash")
           Files = readFileRefs obj })
     |> Seq.toList
+
+// --- Writes ---
+
+let private ensureRealmFile (realm: Realm) (hash: string) : IRealmObjectBase =
+    match realm.DynamicApi.Find("File", hash) with
+    | null -> realm.DynamicApi.CreateObject("File", hash)
+    | existing -> existing
+
+let private writeFileRefs (realm: Realm) (parent: IRealmObjectBase) (files: FileRef list) =
+    let list = parent.DynamicApi.GetList<IEmbeddedObject>("Files")
+
+    for f in files do
+        let realmFile = ensureRealmFile realm f.Hash
+        let usage = realm.DynamicApi.AddEmbeddedObjectToList(list)
+        usage.DynamicApi.Set("File", RealmValue.Object(realmFile))
+        usage.DynamicApi.Set("Filename", f.Filename)
+
+let private writeUser (realm: Realm) (parent: IRealmObjectBase) (propName: string) (user: UserData) =
+    let obj = realm.DynamicApi.CreateEmbeddedObjectForProperty(parent, propName)
+    obj.DynamicApi.Set("OnlineID", user.OnlineID)
+    obj.DynamicApi.Set("Username", user.Username)
+    obj.DynamicApi.Set("CountryCode", user.CountryCode)
+
+let private writeMetadata (realm: Realm) (parent: IRealmObjectBase) (m: MetadataData) =
+    let obj = realm.DynamicApi.CreateEmbeddedObjectForProperty(parent, "Metadata")
+    obj.DynamicApi.Set("Title", m.Title)
+    obj.DynamicApi.Set("TitleUnicode", m.TitleUnicode)
+    obj.DynamicApi.Set("Artist", m.Artist)
+    obj.DynamicApi.Set("ArtistUnicode", m.ArtistUnicode)
+    obj.DynamicApi.Set("Source", m.Source)
+    obj.DynamicApi.Set("Tags", m.Tags)
+    obj.DynamicApi.Set("PreviewTime", m.PreviewTime)
+    obj.DynamicApi.Set("AudioFile", m.AudioFile)
+    obj.DynamicApi.Set("BackgroundFile", m.BackgroundFile)
+    writeUser realm obj "Author" m.Author
+
+let private writeDifficulty (realm: Realm) (parent: IRealmObjectBase) (d: DifficultyData) =
+    let obj = realm.DynamicApi.CreateEmbeddedObjectForProperty(parent, "Difficulty")
+    obj.DynamicApi.Set("DrainRate", d.DrainRate)
+    obj.DynamicApi.Set("CircleSize", d.CircleSize)
+    obj.DynamicApi.Set("OverallDifficulty", d.OverallDifficulty)
+    obj.DynamicApi.Set("ApproachRate", d.ApproachRate)
+    obj.DynamicApi.Set("SliderMultiplier", d.SliderMultiplier)
+    obj.DynamicApi.Set("SliderTickRate", d.SliderTickRate)
+
+let private writeUserSettings (realm: Realm) (parent: IRealmObjectBase) (offset: float) =
+    let obj = realm.DynamicApi.CreateEmbeddedObjectForProperty(parent, "UserSettings")
+    obj.DynamicApi.Set("Offset", offset)
+
+let private writeBeatmap (realm: Realm) (setObj: IRealmObjectBase) (b: BeatmapData) =
+    let list = setObj.DynamicApi.GetList<IRealmObject>("Beatmaps")
+    let obj = realm.DynamicApi.CreateObject("Beatmap", Nullable(Guid.NewGuid()))
+    obj.DynamicApi.Set("DifficultyName", b.DifficultyName)
+    obj.DynamicApi.Set("Status", b.Status)
+    obj.DynamicApi.Set("OnlineID", b.OnlineID)
+    obj.DynamicApi.Set("Length", b.Length)
+    obj.DynamicApi.Set("BPM", b.BPM)
+    obj.DynamicApi.Set("Hash", b.Hash)
+    obj.DynamicApi.Set("StarRating", b.StarRating)
+    obj.DynamicApi.Set("MD5Hash", b.MD5Hash)
+    obj.DynamicApi.Set("OnlineMD5Hash", b.OnlineMD5Hash)
+    obj.DynamicApi.Set("Hidden", b.Hidden)
+    obj.DynamicApi.Set("EndTimeObjectCount", b.EndTimeObjectCount)
+    obj.DynamicApi.Set("TotalObjectCount", b.TotalObjectCount)
+    obj.DynamicApi.Set("BeatDivisor", b.BeatDivisor)
+
+    if b.EditorTimestamp.HasValue then
+        obj.DynamicApi.Set("EditorTimestamp", b.EditorTimestamp.Value)
+
+    if b.LastLocalUpdate.HasValue then
+        obj.DynamicApi.Set("LastLocalUpdate", b.LastLocalUpdate.Value)
+
+    if b.LastOnlineUpdate.HasValue then
+        obj.DynamicApi.Set("LastOnlineUpdate", b.LastOnlineUpdate.Value)
+
+    if b.LastPlayed.HasValue then
+        obj.DynamicApi.Set("LastPlayed", b.LastPlayed.Value)
+
+    let ruleset = realm.DynamicApi.Find("Ruleset", b.RulesetShortName)
+
+    if ruleset <> null then
+        obj.DynamicApi.Set("Ruleset", RealmValue.Object(ruleset))
+
+    writeMetadata realm obj b.Metadata
+    writeDifficulty realm obj b.Difficulty
+    writeUserSettings realm obj b.Offset
+
+    list.Add(obj :?> IRealmObject)
+
+let writeBeatmapSets (realm: Realm) (sets: BeatmapSetData list) =
+    realm.Write(fun () ->
+        for s in sets do
+            let obj = realm.DynamicApi.CreateObject("BeatmapSet", Nullable(Guid.NewGuid()))
+            obj.DynamicApi.Set("OnlineID", s.OnlineID)
+            obj.DynamicApi.Set("DateAdded", s.DateAdded)
+
+            if s.DateSubmitted.HasValue then
+                obj.DynamicApi.Set("DateSubmitted", s.DateSubmitted.Value)
+
+            if s.DateRanked.HasValue then
+                obj.DynamicApi.Set("DateRanked", s.DateRanked.Value)
+
+            obj.DynamicApi.Set("Status", s.Status)
+            obj.DynamicApi.Set("Hash", s.Hash)
+            obj.DynamicApi.Set("DeletePending", false)
+            obj.DynamicApi.Set("Protected", false)
+
+            writeFileRefs realm obj s.Files
+
+            for b in s.Beatmaps do
+                writeBeatmap realm obj b)
+
+let writeSkins (realm: Realm) (skins: SkinData list) =
+    realm.Write(fun () ->
+        for s in skins do
+            let obj = realm.DynamicApi.CreateObject("Skin", Nullable(Guid.NewGuid()))
+            obj.DynamicApi.Set("Name", s.Name)
+            obj.DynamicApi.Set("Creator", s.Creator)
+            obj.DynamicApi.Set("InstantiationInfo", s.InstantiationInfo)
+            obj.DynamicApi.Set("Hash", s.Hash)
+            obj.DynamicApi.Set("DeletePending", false)
+            obj.DynamicApi.Set("Protected", false)
+
+            writeFileRefs realm obj s.Files)
+
+let collectFileHashes (sets: BeatmapSetData list) (skins: SkinData list) : Set<string> =
+    let beatmapHashes =
+        sets |> List.collect (fun s -> s.Files) |> List.map (fun f -> f.Hash)
+
+    let skinHashes =
+        skins |> List.collect (fun s -> s.Files) |> List.map (fun f -> f.Hash)
+
+    Set.ofList (beatmapHashes @ skinHashes)
