@@ -18,9 +18,19 @@ let getOsuDataPath () =
 let findRealmPath (dataPath: string) : string =
     let clientRealm = IO.Path.Combine(dataPath, "client.realm")
 
+    let parseVersion (path: string) =
+        let name = IO.Path.GetFileNameWithoutExtension(path)
+
+        match name.LastIndexOf('_') with
+        | -1 -> 0
+        | idx ->
+            match Int32.TryParse(name.Substring(idx + 1)) with
+            | true, v -> v
+            | _ -> 0
+
     let versioned =
         IO.Directory.GetFiles(dataPath, "client_*.realm")
-        |> Array.sortDescending
+        |> Array.sortByDescending parseVersion
         |> Array.tryHead
 
     versioned |> Option.defaultValue clientRealm
