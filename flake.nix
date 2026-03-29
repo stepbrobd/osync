@@ -65,6 +65,7 @@
           done
           pushd "$root" > /dev/null
 
+          ${lib.getExe pkgs.deno} fmt .
           ${lib.getExe pkgs.fantomas} --verbosity detailed src/
           ${lib.getExe pkgs.gitleaks} git --pre-commit --staged --verbose
           ${lib.getExe pkgs.nixpkgs-fmt} .
