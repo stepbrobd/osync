@@ -99,19 +99,22 @@ let rsyncFiles
         try
             File.WriteAllLines(listFile, hashes |> Seq.map hashToPath)
 
+            // Escape spaces for the remote shell when a host prefix is present.
+            let rsyncEscape (path: string) = path.Replace(" ", "\\ ")
+
             let srcFilesDir = Path.Combine(srcDataPath, "files")
 
             let srcFiles =
                 match srcHost with
                 | None -> srcFilesDir + "/"
-                | Some hostname -> $"{hostname}:{srcFilesDir}/"
+                | Some hostname -> $"{hostname}:{rsyncEscape srcFilesDir}/"
 
             let destFilesDir = Path.Combine(destDataPath, "files")
 
             let destFiles =
                 match destHost with
                 | None -> destFilesDir + "/"
-                | Some hostname -> $"{hostname}:{destFilesDir}/"
+                | Some hostname -> $"{hostname}:{rsyncEscape destFilesDir}/"
 
             let psi =
                 ProcessStartInfo(
@@ -121,7 +124,7 @@ let rsyncFiles
                     RedirectStandardError = true
                 )
 
-            for arg in [ "-avs"; "--files-from"; listFile; srcFiles; destFiles ] do
+            for arg in [ "-av"; "--files-from"; listFile; srcFiles; destFiles ] do
                 psi.ArgumentList.Add(arg)
 
             use proc = Process.Start(psi)
