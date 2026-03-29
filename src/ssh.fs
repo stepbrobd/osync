@@ -3,6 +3,9 @@ module Osync.Ssh
 open System.Diagnostics
 open System.IO
 
+/// Shell-escape a string for use inside an SSH command string.
+/// Only use this for arguments passed to runRemote or writeRemoteFile,
+/// NOT for scp/rsync paths (those use ArgumentList, which bypasses the shell).
 let shellEscape (s: string) : string = "'" + s.Replace("'", "'\\''") + "'"
 
 let runRemote (host: string) (command: string) : Result<string, string> =
@@ -68,16 +71,12 @@ let copyRealmToTemp (host: string option) (realmPath: string) : Result<string, s
         with ex ->
             Error $"Failed to copy realm: {ex.Message}"
     | Some hostname ->
-        let src = $"{hostname}:{shellEscape realmPath}"
-
-        match scpFile src tempPath with
+        match scpFile $"{hostname}:{realmPath}" tempPath with
         | Ok() -> Ok tempPath
         | Error e -> Error e
 
 let scpToRemote (localPath: string) (hostname: string) (remotePath: string) : Result<string, string> =
-    let dest = $"{hostname}:{shellEscape remotePath}"
-
-    match scpFile localPath dest with
+    match scpFile localPath $"{hostname}:{remotePath}" with
     | Ok() -> Ok remotePath
     | Error e -> Error e
 
@@ -90,6 +89,9 @@ let rsyncFiles
     : Result<unit, string> =
     if Seq.isEmpty hashes then
         Ok()
+    else if srcHost.IsSome && destHost.IsSome then
+        Error
+            "rsync does not support both source and destination being remote. Run osync on one of the machines instead."
     else
         let listFile =
             Path.Combine(Path.GetTempPath(), $"osync-rsync-{Path.GetRandomFileName()}")
@@ -97,19 +99,19 @@ let rsyncFiles
         try
             File.WriteAllLines(listFile, hashes |> Seq.map hashToPath)
 
+            let srcFilesDir = Path.Combine(srcDataPath, "files")
+
             let srcFiles =
                 match srcHost with
-                | None -> Path.Combine(srcDataPath, "files") + "/"
-                | Some hostname ->
-                    let remote = shellEscape (Path.Combine(srcDataPath, "files"))
-                    $"{hostname}:{remote}/"
+                | None -> srcFilesDir + "/"
+                | Some hostname -> $"{hostname}:{srcFilesDir}/"
+
+            let destFilesDir = Path.Combine(destDataPath, "files")
 
             let destFiles =
                 match destHost with
-                | None -> Path.Combine(destDataPath, "files") + "/"
-                | Some hostname ->
-                    let remote = shellEscape (Path.Combine(destDataPath, "files"))
-                    $"{hostname}:{remote}/"
+                | None -> destFilesDir + "/"
+                | Some hostname -> $"{hostname}:{destFilesDir}/"
 
             let psi =
                 ProcessStartInfo(
@@ -119,7 +121,7 @@ let rsyncFiles
                     RedirectStandardError = true
                 )
 
-            for arg in [ "-av"; "--files-from"; listFile; srcFiles; destFiles ] do
+            for arg in [ "-avs"; "--files-from"; listFile; srcFiles; destFiles ] do
                 psi.ArgumentList.Add(arg)
 
             use proc = Process.Start(psi)

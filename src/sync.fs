@@ -112,12 +112,9 @@ let parseExtractJson (json: string) : Result<MachineState, string> =
             |> Set.ofSeq
 
         let skinIdentifiers =
-            match root.TryGetProperty("skinIdentifiers") with
-            | true, prop ->
-                prop.EnumerateObject()
-                |> Seq.map (fun p -> p.Name, p.Value.GetString())
-                |> Map.ofSeq
-            | _ -> Map.empty
+            root.GetProperty("skinIdentifiers").EnumerateObject()
+            |> Seq.map (fun p -> p.Name, p.Value.GetString())
+            |> Map.ofSeq
 
         let settings =
             root.GetProperty("settings").EnumerateObject()
@@ -132,10 +129,7 @@ let parseExtractJson (json: string) : Result<MachineState, string> =
         let autoDownload = root.GetProperty("autoDownload").GetBoolean()
         let dataPath = root.GetProperty("dataPath").GetString()
 
-        let realmPath =
-            match root.TryGetProperty("realmPath") with
-            | true, prop -> prop.GetString()
-            | _ -> IO.Path.Combine(dataPath, "client.realm")
+        let realmPath = root.GetProperty("realmPath").GetString()
 
         let settingsPath = root.GetProperty("settingsPath").GetString()
 
@@ -163,8 +157,8 @@ let extractState (host: ResolvedHost) (dirOverride: string option) (osyncPath: s
     | Remote hostname ->
         let cmd =
             match dirOverride with
-            | Some d -> $"{Ssh.shellEscape osyncPath} extract --dir {Ssh.shellEscape d}"
-            | None -> $"{Ssh.shellEscape osyncPath} extract"
+            | Some d -> $"{osyncPath} extract --dir {Ssh.shellEscape d}"
+            | None -> $"{osyncPath} extract"
 
         Ssh.runRemote hostname cmd |> Result.bind parseExtractJson
 
@@ -569,14 +563,12 @@ let private syncFilesRemote
                             true
                         | Ok _ ->
                             let importCmd =
-                                let osync = Ssh.shellEscape config.ToOsync
-
                                 let dirArg =
                                     match config.ToDir with
                                     | Some d -> $" --dir {Ssh.shellEscape d}"
                                     | None -> ""
 
-                                $"{osync} import --source-realm {Ssh.shellEscape remoteTempRealm}{dirArg}"
+                                $"{config.ToOsync} import --source-realm {Ssh.shellEscape remoteTempRealm}{dirArg}"
 
                             match Ssh.runRemote toHostname importCmd with
                             | Error e ->
