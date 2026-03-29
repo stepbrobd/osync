@@ -1,0 +1,37 @@
+[
+  {
+    "pname": "Argu",
+    "version": "6.2.5",
+    "hash": "sha256-5HcZcvco4e8+hgLhzlxk7ZmFVLtZL9LVr7LbmXsLmNU="
+  },
+  {
+    "pname": "Fody",
+    "version": "6.9.1",
+    "hash": "sha256-yDzLI06oFVNI4wiexSQK114YZlSOoGPTr8LIlr22M8I="
+  },
+  {
+    "pname": "MongoDB.Bson",
+    "version": "2.21.0",
+    "hash": "sha256-LZdDJkwQSVBLJfeE3SEckpi+EZcHIccHlhHoUxZ5FqE="
+  },
+  {
+    "pname": "Realm",
+    "version": "20.1.0",
+    "hash": "sha256-DxJwBTYKGw3CcLj7j5dv7GmJTjGo5c8Z+0VwNjY74lA="
+  },
+  {
+    "pname": "Remotion.Linq",
+    "version": "2.2.0",
+    "hash": "sha256-rpPp2xyHj2JsTy6k3FAhljvl85PNa3R9jrVy3UG0hvg="
+  },
+  {
+    "pname": "System.Configuration.ConfigurationManager",
+    "version": "4.4.0",
+    "hash": "sha256-+8wGYllXnIxRzy9dLhZFB88GoPj8ivYXS0KUfcivT8I="
+  },
+  {
+    "pname": "System.Security.Cryptography.ProtectedData",
+    "version": "4.4.0",
+    "hash": "sha256-Ri53QmFX8I8UH0x4PikQ1ZA07ZSnBUXStd5rBfGWFOE="
+  }
+]
