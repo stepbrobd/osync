@@ -174,11 +174,19 @@ osync sync --from laptop \
   --from-osync /home/user/.local/bin/osync
 ```
 
-Use a nix flake as the remote osync:
+If both machines have nix installed, you can run osync without installing
+anything:
 
 ```bash
-osync sync --from laptop \
-  --from-osync 'nix run github:user/osync --'
+nix run github:stepbrobd/osync -- sync --from macbook \
+  --from-osync 'nix run github:stepbrobd/osync --'
+```
+
+Use `--refresh` to pull the latest version:
+
+```bash
+nix run --refresh github:stepbrobd/osync -- sync --from macbook \
+  --from-osync 'nix run --refresh github:stepbrobd/osync --'
 ```
 
 Dump the local extracted state as JSON:
