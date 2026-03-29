@@ -83,7 +83,10 @@ let private runSync (results: ParseResults<SyncArgs>) : int =
     let fromHost = results.TryGetResult SyncArgs.From
     let toHost = results.TryGetResult SyncArgs.To
 
-    if fromHost.IsNone && toHost.IsNone then
+    let fromDir = results.TryGetResult SyncArgs.From_Dir
+    let toDir = results.TryGetResult SyncArgs.To_Dir
+
+    if fromHost.IsNone && toHost.IsNone && fromDir.IsNone && toDir.IsNone then
         eprintfn "Error: At least one of --from or --to must be provided."
         1
     else
@@ -111,8 +114,8 @@ let private runSync (results: ParseResults<SyncArgs>) : int =
             { Mode = Sync.Sync
               FromHost = fromResolved
               ToHost = toResolved
-              FromDir = results.TryGetResult SyncArgs.From_Dir
-              ToDir = results.TryGetResult SyncArgs.To_Dir
+              FromDir = fromDir
+              ToDir = toDir
               FromOsync = results.GetResult(SyncArgs.From_Osync, "osync")
               ToOsync = results.GetResult(SyncArgs.To_Osync, "osync")
               FromLabel = fromLabel
@@ -122,7 +125,10 @@ let private runDiff (results: ParseResults<DiffArgs>) : int =
     let betweenHost = results.TryGetResult DiffArgs.Between
     let andHost = results.TryGetResult DiffArgs.And
 
-    if betweenHost.IsNone && andHost.IsNone then
+    let betweenDir = results.TryGetResult DiffArgs.Between_Dir
+    let andDir = results.TryGetResult DiffArgs.And_Dir
+
+    if betweenHost.IsNone && andHost.IsNone && betweenDir.IsNone && andDir.IsNone then
         eprintfn "Error: At least one of --between or --and must be provided."
         1
     else
@@ -150,8 +156,8 @@ let private runDiff (results: ParseResults<DiffArgs>) : int =
             { Mode = Sync.Diff
               FromHost = fromResolved
               ToHost = toResolved
-              FromDir = results.TryGetResult DiffArgs.Between_Dir
-              ToDir = results.TryGetResult DiffArgs.And_Dir
+              FromDir = betweenDir
+              ToDir = andDir
               FromOsync = results.GetResult(DiffArgs.Between_Osync, "osync")
               ToOsync = results.GetResult(DiffArgs.And_Osync, "osync")
               FromLabel = fromLabel
