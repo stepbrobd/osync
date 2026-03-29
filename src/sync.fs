@@ -6,6 +6,7 @@ open System.Text.Json
 
 type MachineState =
     { BeatmapSetIds: Set<int>
+      SkinIdentifiers: Map<string, string> // hash -> name
       Settings: Map<string, string>
       RawSettingsLines: string array
       AutoDownload: bool
@@ -21,6 +22,7 @@ let extractLocal (dirOverride: string option) : Result<MachineState, string> =
         let settingsPath = Path.Combine(dataPath, "game.ini")
 
         let beatmapSetIds = Realm.readBeatmapSetIds dataPath
+        let skinIdentifiers = Realm.readSkinIdentifiers dataPath
 
         let rawLines =
             if File.Exists(settingsPath) then
@@ -38,6 +40,7 @@ let extractLocal (dirOverride: string option) : Result<MachineState, string> =
 
         Ok
             { BeatmapSetIds = beatmapSetIds
+              SkinIdentifiers = skinIdentifiers
               Settings = settings
               RawSettingsLines = rawLines
               AutoDownload = autoDownload
@@ -59,6 +62,14 @@ let serializeExtractJson (state: MachineState) : string =
         writer.WriteNumberValue(id)
 
     writer.WriteEndArray()
+
+    writer.WritePropertyName("skinIdentifiers")
+    writer.WriteStartObject()
+
+    for kv in state.SkinIdentifiers do
+        writer.WriteString(kv.Key, kv.Value)
+
+    writer.WriteEndObject()
 
     writer.WritePropertyName("settings")
     writer.WriteStartObject()
@@ -95,6 +106,14 @@ let parseExtractJson (json: string) : Result<MachineState, string> =
             |> Seq.map (fun e -> e.GetInt32())
             |> Set.ofSeq
 
+        let skinIdentifiers =
+            match root.TryGetProperty("skinIdentifiers") with
+            | true, prop ->
+                prop.EnumerateObject()
+                |> Seq.map (fun p -> p.Name, p.Value.GetString())
+                |> Map.ofSeq
+            | _ -> Map.empty
+
         let settings =
             root.GetProperty("settings").EnumerateObject()
             |> Seq.map (fun p -> p.Name, p.Value.GetString())
@@ -111,6 +130,7 @@ let parseExtractJson (json: string) : Result<MachineState, string> =
 
         Ok
             { BeatmapSetIds = beatmapSetIds
+              SkinIdentifiers = skinIdentifiers
               Settings = settings
               RawSettingsLines = rawSettingsLines
               AutoDownload = autoDownload
