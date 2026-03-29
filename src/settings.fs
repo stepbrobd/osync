@@ -74,7 +74,7 @@ let patchLines (lines: string array) (desired: Map<string, string>) : string arr
             | Some newValue ->
                 result.Add($"{key} = {newValue}")
                 remaining <- Map.remove key remaining
-            | None -> () // duplicate or removed key — drop
+            | None -> () // drop duplicate or removed key
 
     for kv in remaining do
         result.Add($"{kv.Key} = {kv.Value}")
