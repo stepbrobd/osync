@@ -26,6 +26,7 @@
           openssh
         ];
         shellHook = ''
+          export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
           export NUGET_PACKAGES=$PWD/.nuget/packages
           mkdir -p "$NUGET_PACKAGES"
         '';

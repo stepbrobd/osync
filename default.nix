@@ -15,12 +15,14 @@ buildDotnetModule {
   selfContainedBuild = true;
 
   env.DOTNET_SYSTEM_GLOBALIZATION_INVARIANT = 1;
+  makeWrapperArgs = [ "--set" "DOTNET_SYSTEM_GLOBALIZATION_INVARIANT" "1" ];
 
   src = lib.fileset.toSource {
     root = ./.;
     fileset = lib.fileset.unions [
       ./src
       ./osync.fsproj
+      ./nuget.config
       ./version.txt
     ];
   };
