@@ -11,6 +11,7 @@ type MachineState =
       RawSettingsLines: string array
       AutoDownload: bool
       DataPath: string
+      RealmPath: string
       SettingsPath: string }
 
 // --- Extraction ---
@@ -38,6 +39,8 @@ let extractLocal (dirOverride: string option) : Result<MachineState, string> =
             |> Option.map (fun v -> v.ToLowerInvariant() = "true" || v = "1")
             |> Option.defaultValue false
 
+        let realmPath = Realm.findRealmPath dataPath
+
         Ok
             { BeatmapSetIds = beatmapSetIds
               SkinIdentifiers = skinIdentifiers
@@ -45,6 +48,7 @@ let extractLocal (dirOverride: string option) : Result<MachineState, string> =
               RawSettingsLines = rawLines
               AutoDownload = autoDownload
               DataPath = dataPath
+              RealmPath = realmPath
               SettingsPath = settingsPath }
     with ex ->
         Error $"Failed to extract local state: {ex.Message}"
@@ -89,6 +93,7 @@ let serializeExtractJson (state: MachineState) : string =
 
     writer.WriteBoolean("autoDownload", state.AutoDownload)
     writer.WriteString("dataPath", state.DataPath)
+    writer.WriteString("realmPath", state.RealmPath)
     writer.WriteString("settingsPath", state.SettingsPath)
 
     writer.WriteEndObject()
@@ -126,6 +131,12 @@ let parseExtractJson (json: string) : Result<MachineState, string> =
 
         let autoDownload = root.GetProperty("autoDownload").GetBoolean()
         let dataPath = root.GetProperty("dataPath").GetString()
+
+        let realmPath =
+            match root.TryGetProperty("realmPath") with
+            | true, prop -> prop.GetString()
+            | _ -> IO.Path.Combine(dataPath, "client.realm")
+
         let settingsPath = root.GetProperty("settingsPath").GetString()
 
         Ok
@@ -135,6 +146,7 @@ let parseExtractJson (json: string) : Result<MachineState, string> =
               RawSettingsLines = rawSettingsLines
               AutoDownload = autoDownload
               DataPath = dataPath
+              RealmPath = realmPath
               SettingsPath = settingsPath }
     with ex ->
         Error $"Failed to parse extract JSON: {ex.Message}"
