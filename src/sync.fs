@@ -416,16 +416,31 @@ let private hostOption (h: ResolvedHost) =
     | Remote h -> Some h
     | Localhost -> None
 
-let private writeToLocal (toState: MachineState) (beatmapSets: Realm.BeatmapSetData list) (skins: Realm.SkinData list) =
-    use destRealm = Realm.openRealm toState.DataPath
+let private readMissing
+    (realm: Realms.Realm)
+    (missingBeatmapIds: Set<int>)
+    (missingSkinHashes: Set<string>)
+    : Realm.BeatmapSetData list * Realm.SkinData list =
+    let beatmapSets =
+        if Set.isEmpty missingBeatmapIds then
+            []
+        else
+            Realm.readBeatmapSets realm missingBeatmapIds
 
+    let skins =
+        if Set.isEmpty missingSkinHashes then
+            []
+        else
+            Realm.readSkins realm missingSkinHashes
+
+    (beatmapSets, skins)
+
+let private writeToRealm (realm: Realms.Realm) (beatmapSets: Realm.BeatmapSetData list) (skins: Realm.SkinData list) =
     if not (List.isEmpty beatmapSets) then
-        Realm.writeBeatmapSets destRealm beatmapSets
+        Realm.writeBeatmapSets realm beatmapSets
 
     if not (List.isEmpty skins) then
-        Realm.writeSkins destRealm skins
-
-    Ok()
+        Realm.writeSkins realm skins
 
 let private writeToRemote
     (config: RunConfig)
@@ -488,21 +503,8 @@ let private syncFiles
             try
                 try
                     use sourceRealm = Realm.openRealmAt tempRealmPath
-
-                    let beatmapSets =
-                        if Set.isEmpty missingBeatmapIds then
-                            []
-                        else
-                            eprintfn "  Reading %d beatmap set(s) from %s..." totalMaps config.FromLabel
-                            Realm.readBeatmapSets sourceRealm missingBeatmapIds
-
-                    let skins =
-                        if Set.isEmpty missingSkinHashes then
-                            []
-                        else
-                            eprintfn "  Reading %d skin(s) from %s..." totalSkins config.FromLabel
-                            Realm.readSkins sourceRealm missingSkinHashes
-
+                    eprintfn "  Reading missing data from %s..." config.FromLabel
+                    let (beatmapSets, skins) = readMissing sourceRealm missingBeatmapIds missingSkinHashes
                     let fileHashes = Realm.collectFileHashes beatmapSets skins
 
                     if not (Set.isEmpty fileHashes) then
@@ -524,7 +526,10 @@ let private syncFiles
 
                             let writeResult =
                                 match config.ToHost with
-                                | Localhost -> writeToLocal toState beatmapSets skins
+                                | Localhost ->
+                                    use destRealm = Realm.openRealm toState.DataPath
+                                    writeToRealm destRealm beatmapSets skins
+                                    Ok()
                                 | Remote h -> writeToRemote config h tempRealmPath
 
                             match writeResult with
@@ -616,24 +621,8 @@ let runImport (sourceRealmPath: string) (dirOverride: string option) : int =
             eprintfn "  Nothing to import."
             0
         else
-            let beatmapSets =
-                if Set.isEmpty missingBeatmapIds then
-                    []
-                else
-                    Realm.readBeatmapSets sourceRealm missingBeatmapIds
-
-            let skins =
-                if Set.isEmpty missingSkinHashes then
-                    []
-                else
-                    Realm.readSkins sourceRealm missingSkinHashes
-
-            if not (List.isEmpty beatmapSets) then
-                Realm.writeBeatmapSets destRealm beatmapSets
-
-            if not (List.isEmpty skins) then
-                Realm.writeSkins destRealm skins
-
+            let (beatmapSets, skins) = readMissing sourceRealm missingBeatmapIds missingSkinHashes
+            writeToRealm destRealm beatmapSets skins
             eprintfn "  Imported %d beatmap(s) and %d skin(s)." (List.length beatmapSets) (List.length skins)
             0
     with ex ->

@@ -112,8 +112,9 @@ you can pass a multi-word command like `nix run github:user/osync --`. If the
 path contains spaces, quote it for the remote shell:
 `--from-osync "'/path with spaces/osync'"`.
 
-The remote protocol is just `osync extract` over SSH with JSON on stdout. It is
-not versioned. In practice you should run the same osync build on both sides.
+The remote protocol uses `osync extract` over SSH for reading state and
+`osync import` over SSH for writing beatmaps and skins. Neither is versioned. In
+practice you should run the same osync build on both sides.
 
 Help:
 
