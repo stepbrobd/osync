@@ -115,8 +115,7 @@ let rsyncFiles
                     (srcFilesDir + "/", $"{hostname}:.", [ "--rsync-path"; rsyncPath ])
                 | _ -> (srcFilesDir + "/", destFilesDir + "/", [])
 
-            let psi =
-                ProcessStartInfo("rsync", UseShellExecute = false, RedirectStandardOutput = true)
+            let psi = ProcessStartInfo("rsync", UseShellExecute = false)
 
             for arg in
                 [ "-a"; "--info=progress2" ]
@@ -125,7 +124,6 @@ let rsyncFiles
                 psi.ArgumentList.Add(arg)
 
             use proc = Process.Start(psi)
-            let _stdout = proc.StandardOutput.ReadToEnd()
             proc.WaitForExit()
 
             match proc.ExitCode with
