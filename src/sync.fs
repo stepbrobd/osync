@@ -405,6 +405,91 @@ let private handleSettingsDiff (config: RunConfig) (fromState: MachineState) (to
 
     hadError
 
+let private syncFiles (config: RunConfig) (missingBeatmapIds: Set<int>) (missingSkinHashes: Set<string>) : bool =
+    let totalMaps = Set.count missingBeatmapIds
+    let totalSkins = Set.count missingSkinHashes
+
+    if totalMaps = 0 && totalSkins = 0 then
+        false
+    else if
+        not (
+            promptYesNo
+                $"  Sync %d{totalMaps} beatmap(s) and %d{totalSkins} skin(s) from %s{config.FromLabel} to %s{config.ToLabel}?"
+        )
+    then
+        false
+    else
+        let fromHost =
+            match config.FromHost with
+            | Remote h -> Some h
+            | Localhost -> None
+
+        let fromDataPath = config.FromDir |> Option.defaultWith Realm.getOsuDataPath
+
+        let toDataPath = config.ToDir |> Option.defaultWith Realm.getOsuDataPath
+
+        eprintfn ""
+        eprintfn "  Copying realm database from %s..." config.FromLabel
+
+        match Ssh.copyRealmToTemp fromHost fromDataPath with
+        | Error e ->
+            eprintfn "  Error: %s" e
+            true
+        | Ok tempRealmPath ->
+            try
+                try
+                    use sourceRealm = Realm.openRealmAt tempRealmPath
+
+                    let beatmapSets =
+                        if Set.isEmpty missingBeatmapIds then
+                            []
+                        else
+                            eprintfn "  Reading %d beatmap set(s) from %s..." totalMaps config.FromLabel
+                            Realm.readBeatmapSets sourceRealm missingBeatmapIds
+
+                    let skins =
+                        if Set.isEmpty missingSkinHashes then
+                            []
+                        else
+                            eprintfn "  Reading %d skin(s) from %s..." totalSkins config.FromLabel
+                            Realm.readSkins sourceRealm missingSkinHashes
+
+                    let fileHashes = Realm.collectFileHashes beatmapSets skins
+
+                    if not (Set.isEmpty fileHashes) then
+                        eprintfn "  Syncing %d file(s)..." (Set.count fileHashes)
+
+                        match Ssh.rsyncFiles fromHost fromDataPath toDataPath fileHashes with
+                        | Error e ->
+                            eprintfn "  Error syncing files: %s" e
+                            true
+                        | Ok() ->
+                            eprintfn "  Writing to realm on %s..." config.ToLabel
+
+                            use destRealm = Realm.openRealm toDataPath
+
+                            if not (List.isEmpty beatmapSets) then
+                                Realm.writeBeatmapSets destRealm beatmapSets
+
+                            if not (List.isEmpty skins) then
+                                Realm.writeSkins destRealm skins
+
+                            eprintfn
+                                "  Synced %d beatmap(s) and %d skin(s)."
+                                (List.length beatmapSets)
+                                (List.length skins)
+
+                            false
+                    else
+                        eprintfn "  No files to sync."
+                        false
+                with ex ->
+                    eprintfn "  Error during sync: %s" ex.Message
+                    true
+            finally
+                if File.Exists(tempRealmPath) then
+                    File.Delete(tempRealmPath)
+
 let run (config: RunConfig) : int =
     eprintfn "Extracting state from %s..." config.FromLabel
     let fromResult = extractState config.FromHost config.FromDir config.FromOsync
@@ -423,7 +508,7 @@ let run (config: RunConfig) : int =
         let (missingOnFrom, missingOnTo) =
             printBeatmapDiffs fromState toState config.FromLabel config.ToLabel
 
-        let (_skinsMissingOnFrom, _skinsMissingOnTo) =
+        let (_skinsMissingOnFrom, skinsMissingOnTo) =
             printSkinDiffs fromState toState config.FromLabel config.ToLabel
 
         let mutable hadError = false
@@ -436,6 +521,11 @@ let run (config: RunConfig) : int =
             hadError <- err
             from <- f
             ``to`` <- t
+
+            eprintfn ""
+
+            if syncFiles config missingOnTo skinsMissingOnTo then
+                hadError <- true
         | Diff -> ()
 
         if handleSettingsDiff config from ``to`` then
