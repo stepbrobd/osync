@@ -7,71 +7,55 @@
   outputs = inputs: inputs.parts.lib.mkFlake { inherit inputs; } {
     systems = import inputs.systems;
 
-    perSystem = { lib, pkgs, system, ... }:
-      let
-        dotnet-sdk = pkgs.dotnetCorePackages.sdk_10_0;
-        dotnet-runtime = pkgs.dotnetCorePackages.runtime_10_0;
-      in
-      {
-        _module.args.pkgs = import inputs.nixpkgs { inherit system; };
+    flake.overlays.default = pkgs: _: {
+      osync = pkgs.callPackage ./default.nix { };
+    };
 
-        devShells.default = pkgs.mkShell {
-          packages = with pkgs; [
-            dotnet-sdk
-            fantomas
-            fsautocomplete
-            nixpkgs-fmt
-            openssh
-          ];
+    perSystem = { lib, pkgs, system, ... }: {
+      _module.args.pkgs = import inputs.nixpkgs {
+        inherit system;
+        overlays = [ inputs.self.overlays.default ];
+      };
 
-          shellHook = ''
-            export DOTNET_SYSTEM_GLOBALIZATION_INVARIANT=1
-            export NUGET_PACKAGES=$PWD/.nuget/packages
-            mkdir -p "$NUGET_PACKAGES"
-          '';
-        };
-
-        packages.default = pkgs.buildDotnetModule {
-          inherit dotnet-sdk dotnet-runtime;
-
-          pname = "osync";
-          projectFile = "osync.fsproj";
-          version = lib.fileContents ./version.txt;
-
-          src = lib.fileset.toSource {
-            root = ./.;
-            fileset = lib.fileset.unions [
-              ./src
-              ./osync.fsproj
-              ./version.txt
-            ];
-          };
-
-          nugetDeps = ./nuget.json;
-
-          executables = [ "osync" ];
-        };
-
-        formatter = pkgs.writeShellScriptBin "formatter" ''
-          set -eoux pipefail
-          shopt -s globstar
-
-          root="$PWD"
-          while [[ ! -f "$root/.git/index" ]]; do
-            if [[ "$root" == "/" ]]; then
-              exit 1
-            fi
-            root="$(dirname "$root")"
-          done
-          pushd "$root" > /dev/null
-
-          ${lib.getExe pkgs.deno} fmt .
-          ${lib.getExe pkgs.fantomas} --verbosity detailed src/
-          ${lib.getExe pkgs.gitleaks} git --pre-commit --staged --verbose
-          ${lib.getExe pkgs.nixpkgs-fmt} .
-
-          popd
+      devShells.default = pkgs.mkShell {
+        inputsFrom = with pkgs; [ osync ];
+        packages = with pkgs; [
+          fantomas
+          fsautocomplete
+          nixpkgs-fmt
+          openssh
+        ];
+        shellHook = ''
+          export NUGET_PACKAGES=$PWD/.nuget/packages
+          mkdir -p "$NUGET_PACKAGES"
         '';
       };
+
+      packages = {
+        inherit (pkgs) osync;
+        default = pkgs.osync;
+      };
+
+      formatter = pkgs.writeShellScriptBin "formatter" ''
+        set -eoux pipefail
+        shopt -s globstar
+
+        root="$PWD"
+        while [[ ! -f "$root/.git/index" ]]; do
+          if [[ "$root" == "/" ]]; then
+            exit 1
+          fi
+          root="$(dirname "$root")"
+        done
+        pushd "$root" > /dev/null
+
+        ${lib.getExe pkgs.deno} fmt .
+        ${lib.getExe pkgs.fantomas} --verbosity detailed src/
+        ${lib.getExe pkgs.gitleaks} git --pre-commit --staged --verbose
+        ${lib.getExe pkgs.nixpkgs-fmt} .
+
+        popd
+      '';
+    };
   };
 }
