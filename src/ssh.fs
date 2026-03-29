@@ -99,22 +99,21 @@ let rsyncFiles
         try
             File.WriteAllLines(listFile, hashes |> Seq.map hashToPath)
 
-            // Escape spaces for the remote shell when a host prefix is present.
-            let rsyncEscape (path: string) = path.Replace(" ", "\\ ")
-
             let srcFilesDir = Path.Combine(srcDataPath, "files")
-
-            let srcFiles =
-                match srcHost with
-                | None -> srcFilesDir + "/"
-                | Some hostname -> $"{hostname}:{rsyncEscape srcFilesDir}/"
-
             let destFilesDir = Path.Combine(destDataPath, "files")
 
-            let destFiles =
-                match destHost with
-                | None -> destFilesDir + "/"
-                | Some hostname -> $"{hostname}:{rsyncEscape destFilesDir}/"
+            // Use --rsync-path to cd on the remote side, avoiding space issues
+            // in remote paths. The remote path becomes just "." while the cd
+            // command is interpreted by the remote shell where shellEscape works.
+            let (srcFiles, destFiles, extraArgs) =
+                match srcHost, destHost with
+                | Some hostname, None ->
+                    let rsyncPath = $"cd {shellEscape srcFilesDir} && rsync"
+                    ($"{hostname}:.", destFilesDir + "/", [ "--rsync-path"; rsyncPath ])
+                | None, Some hostname ->
+                    let rsyncPath = $"cd {shellEscape destFilesDir} && rsync"
+                    (srcFilesDir + "/", $"{hostname}:.", [ "--rsync-path"; rsyncPath ])
+                | _ -> (srcFilesDir + "/", destFilesDir + "/", [])
 
             let psi =
                 ProcessStartInfo(
@@ -124,7 +123,7 @@ let rsyncFiles
                     RedirectStandardError = true
                 )
 
-            for arg in [ "-av"; "--files-from"; listFile; srcFiles; destFiles ] do
+            for arg in [ "-av" ] @ extraArgs @ [ "--files-from"; listFile; srcFiles; destFiles ] do
                 psi.ArgumentList.Add(arg)
 
             use proc = Process.Start(psi)
