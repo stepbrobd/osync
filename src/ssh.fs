@@ -16,8 +16,9 @@ let runRemote (host: string) (command: string) : Result<string, string> =
     psi.ArgumentList.Add(command)
     use proc = Process.Start(psi)
 
+    let stderrTask = proc.StandardError.ReadToEndAsync()
     let stdout = proc.StandardOutput.ReadToEnd()
-    let stderr = proc.StandardError.ReadToEnd()
+    let stderr = stderrTask.Result
     proc.WaitForExit()
 
     match proc.ExitCode with

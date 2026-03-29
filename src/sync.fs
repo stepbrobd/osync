@@ -561,46 +561,46 @@ let private syncFiles
 
                     let fileHashes = Realm.collectFileHashes beatmapSets skins scores
 
-                    if not (Set.isEmpty fileHashes) then
-                        eprintfn "  Syncing %d file(s)..." (Set.count fileHashes)
+                    let rsyncResult =
+                        if Set.isEmpty fileHashes then
+                            Ok()
+                        else
+                            eprintfn "  Syncing %d file(s)..." (Set.count fileHashes)
 
-                        match
                             Ssh.rsyncFiles
                                 (hostOption config.FromHost)
                                 (hostOption config.ToHost)
                                 fromState.DataPath
                                 toState.DataPath
                                 fileHashes
-                        with
+
+                    match rsyncResult with
+                    | Error e ->
+                        eprintfn "  Error syncing files: %s" e
+                        true
+                    | Ok() ->
+                        eprintfn "  Writing to realm on %s..." config.ToLabel
+
+                        let writeResult =
+                            match config.ToHost with
+                            | Localhost ->
+                                use destRealm = Realm.openRealm toState.DataPath
+                                writeToRealm destRealm beatmapSets skins scores
+                                Ok()
+                            | Remote h -> writeToRemote config h tempRealmPath
+
+                        match writeResult with
                         | Error e ->
-                            eprintfn "  Error syncing files: %s" e
+                            eprintfn "  %s" e
                             true
                         | Ok() ->
-                            eprintfn "  Writing to realm on %s..." config.ToLabel
+                            eprintfn
+                                "  Synced %d beatmap(s), %d skin(s), and %d score(s)."
+                                (List.length beatmapSets)
+                                (List.length skins)
+                                (List.length scores)
 
-                            let writeResult =
-                                match config.ToHost with
-                                | Localhost ->
-                                    use destRealm = Realm.openRealm toState.DataPath
-                                    writeToRealm destRealm beatmapSets skins scores
-                                    Ok()
-                                | Remote h -> writeToRemote config h tempRealmPath
-
-                            match writeResult with
-                            | Error e ->
-                                eprintfn "  %s" e
-                                true
-                            | Ok() ->
-                                eprintfn
-                                    "  Synced %d beatmap(s), %d skin(s), and %d score(s)."
-                                    (List.length beatmapSets)
-                                    (List.length skins)
-                                    (List.length scores)
-
-                                false
-                    else
-                        eprintfn "  No files to sync."
-                        false
+                            false
                 with ex ->
                     eprintfn "  Error during sync: %s" ex.Message
                     true
