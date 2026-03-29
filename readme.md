@@ -106,7 +106,10 @@ Remote operations go through plain `ssh`. File transfer uses `rsync` with
 `--files-from` to only copy the specific hashed files that are missing. The
 remote host is expected to have an `osync` binary available in `PATH`, unless
 you override it with `--from-osync`, `--to-osync`, `--between-osync`, or
-`--and-osync`.
+`--and-osync`. The value is interpolated into the SSH command string as-is, so
+you can pass a multi-word command like `nix run github:user/osync --`. If the
+path contains spaces, quote it for the remote shell:
+`--from-osync "'/path with spaces/osync'"`.
 
 The remote protocol is just `osync extract` over SSH with JSON on stdout. It is
 not versioned. In practice you should run the same osync build on both sides.
@@ -137,24 +140,24 @@ Sync local machine to a remote host:
 osync sync --to desktop
 ```
 
-Compare two remote hosts:
-
-```bash
-osync diff --between laptop --and desktop
-```
-
 Sync two explicit local directories:
 
 ```bash
 osync sync --from-dir /tmp/osu-a --to-dir /tmp/osu-b
 ```
 
-Use a non-default remote binary path:
+Use a non-default remote osync command:
 
 ```bash
-osync sync --from laptop --to desktop \
-  --from-osync /home/user/.local/bin/osync \
-  --to-osync /home/user/.local/bin/osync
+osync sync --from laptop \
+  --from-osync /home/user/.local/bin/osync
+```
+
+Use a nix flake as the remote osync:
+
+```bash
+osync sync --from laptop \
+  --from-osync 'nix run github:user/osync --'
 ```
 
 Dump the local extracted state as JSON:

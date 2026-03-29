@@ -17,8 +17,8 @@ type SyncArgs =
     | [<AltCommandLine("-t")>] To of host: string
     | From_Dir of path: string
     | To_Dir of path: string
-    | From_Osync of path: string
-    | To_Osync of path: string
+    | From_Osync of command: string
+    | To_Osync of command: string
 
     interface IArgParserTemplate with
         member this.Usage =
@@ -27,8 +27,8 @@ type SyncArgs =
             | To _ -> "Destination host (SSH hostname or omit for localhost)."
             | From_Dir _ -> "Override the osu! data directory on the source side."
             | To_Dir _ -> "Override the osu! data directory on the destination side."
-            | From_Osync _ -> "Path to osync binary on the source host."
-            | To_Osync _ -> "Path to osync binary on the destination host."
+            | From_Osync _ -> "Remote shell command to run osync on the source host."
+            | To_Osync _ -> "Remote shell command to run osync on the destination host."
 
 [<CliPrefix(CliPrefix.DoubleDash)>]
 type DiffArgs =
@@ -36,8 +36,8 @@ type DiffArgs =
     | [<AltCommandLine("-a")>] And of host: string
     | Between_Dir of path: string
     | And_Dir of path: string
-    | Between_Osync of path: string
-    | And_Osync of path: string
+    | Between_Osync of command: string
+    | And_Osync of command: string
 
     interface IArgParserTemplate with
         member this.Usage =
@@ -46,8 +46,8 @@ type DiffArgs =
             | And _ -> "Second host to compare (SSH hostname or omit for localhost)."
             | Between_Dir _ -> "Override the osu! data directory for the first host."
             | And_Dir _ -> "Override the osu! data directory for the second host."
-            | Between_Osync _ -> "Path to osync binary on the first host."
-            | And_Osync _ -> "Path to osync binary on the second host."
+            | Between_Osync _ -> "Remote shell command to run osync on the first host."
+            | And_Osync _ -> "Remote shell command to run osync on the second host."
 
 [<CliPrefix(CliPrefix.DoubleDash)>]
 type ImportArgs =
