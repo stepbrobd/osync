@@ -267,6 +267,42 @@ let private printBeatmapDiffs (fromState: MachineState) (toState: MachineState) 
 
     (missingOnFrom, missingOnTo)
 
+let private printSkinDiffs (fromState: MachineState) (toState: MachineState) (fromLabel: string) (toLabel: string) =
+    let fromHashes = fromState.SkinIdentifiers |> Map.keys |> Set.ofSeq
+    let toHashes = toState.SkinIdentifiers |> Map.keys |> Set.ofSeq
+    let missingOnTo = Set.difference fromHashes toHashes
+    let missingOnFrom = Set.difference toHashes fromHashes
+
+    eprintfn ""
+    eprintfn "=== Skin Differences ==="
+
+    if Set.isEmpty missingOnTo && Set.isEmpty missingOnFrom then
+        eprintfn "  No skin differences found."
+    else
+        if not (Set.isEmpty missingOnTo) then
+            eprintfn ""
+            eprintfn "  Missing on %s (%d skins):" toLabel (Set.count missingOnTo)
+
+            for hash in missingOnTo |> Set.toList |> List.truncate 20 do
+                let name = Map.find hash fromState.SkinIdentifiers
+                eprintfn "    %s" name
+
+            if Set.count missingOnTo > 20 then
+                eprintfn "    ... and %d more" (Set.count missingOnTo - 20)
+
+        if not (Set.isEmpty missingOnFrom) then
+            eprintfn ""
+            eprintfn "  Missing on %s (%d skins):" fromLabel (Set.count missingOnFrom)
+
+            for hash in missingOnFrom |> Set.toList |> List.truncate 20 do
+                let name = Map.find hash toState.SkinIdentifiers
+                eprintfn "    %s" name
+
+            if Set.count missingOnFrom > 20 then
+                eprintfn "    ... and %d more" (Set.count missingOnFrom - 20)
+
+    (missingOnFrom, missingOnTo)
+
 let private updateAutoDownload (state: MachineState) : MachineState =
     let key = "AutomaticallyDownloadMissingBeatmaps"
 
@@ -386,6 +422,9 @@ let run (config: RunConfig) : int =
     | Ok fromState, Ok toState ->
         let (missingOnFrom, missingOnTo) =
             printBeatmapDiffs fromState toState config.FromLabel config.ToLabel
+
+        let (_skinsMissingOnFrom, _skinsMissingOnTo) =
+            printSkinDiffs fromState toState config.FromLabel config.ToLabel
 
         let mutable hadError = false
         let mutable from = fromState
