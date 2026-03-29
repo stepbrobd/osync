@@ -42,37 +42,48 @@ let writeRemoteFile (host: string) (remotePath: string) (content: string) : Resu
 let hashToPath (hash: string) : string =
     Path.Combine(hash.Substring(0, 1), hash.Substring(0, 2), hash)
 
-let copyRealmToTemp (host: string option) (remoteDataPath: string) : Result<string, string> =
+let private scpFile (src: string) (dest: string) : Result<unit, string> =
+    let psi =
+        ProcessStartInfo("scp", UseShellExecute = false, RedirectStandardError = true)
+
+    psi.ArgumentList.Add(src)
+    psi.ArgumentList.Add(dest)
+    use proc = Process.Start(psi)
+    let stderr = proc.StandardError.ReadToEnd()
+    proc.WaitForExit()
+
+    match proc.ExitCode with
+    | 0 -> Ok()
+    | _ -> Error $"scp failed: {stderr}"
+
+let copyRealmToTemp (host: string option) (realmPath: string) : Result<string, string> =
     let tempPath =
         Path.Combine(Path.GetTempPath(), $"osync-realm-{Path.GetRandomFileName()}")
 
     match host with
     | None ->
         try
-            let src = Realm.findRealmPath remoteDataPath
-            File.Copy(src, tempPath)
+            File.Copy(realmPath, tempPath)
             Ok tempPath
         with ex ->
             Error $"Failed to copy realm: {ex.Message}"
     | Some hostname ->
-        let remote = shellEscape (Path.Combine(remoteDataPath, "client.realm"))
-        let src = $"{hostname}:{remote}"
+        let src = $"{hostname}:{shellEscape realmPath}"
 
-        let psi =
-            ProcessStartInfo("scp", UseShellExecute = false, RedirectStandardError = true)
+        match scpFile src tempPath with
+        | Ok() -> Ok tempPath
+        | Error e -> Error e
 
-        psi.ArgumentList.Add(src)
-        psi.ArgumentList.Add(tempPath)
-        use proc = Process.Start(psi)
-        let stderr = proc.StandardError.ReadToEnd()
-        proc.WaitForExit()
+let scpToRemote (localPath: string) (hostname: string) (remotePath: string) : Result<string, string> =
+    let dest = $"{hostname}:{shellEscape remotePath}"
 
-        match proc.ExitCode with
-        | 0 -> Ok tempPath
-        | _ -> Error $"scp failed: {stderr}"
+    match scpFile localPath dest with
+    | Ok() -> Ok remotePath
+    | Error e -> Error e
 
 let rsyncFiles
-    (host: string option)
+    (srcHost: string option)
+    (destHost: string option)
     (srcDataPath: string)
     (destDataPath: string)
     (hashes: string seq)
@@ -87,13 +98,18 @@ let rsyncFiles
             File.WriteAllLines(listFile, hashes |> Seq.map hashToPath)
 
             let srcFiles =
-                match host with
+                match srcHost with
                 | None -> Path.Combine(srcDataPath, "files") + "/"
                 | Some hostname ->
                     let remote = shellEscape (Path.Combine(srcDataPath, "files"))
                     $"{hostname}:{remote}/"
 
-            let destFiles = Path.Combine(destDataPath, "files") + "/"
+            let destFiles =
+                match destHost with
+                | None -> Path.Combine(destDataPath, "files") + "/"
+                | Some hostname ->
+                    let remote = shellEscape (Path.Combine(destDataPath, "files"))
+                    $"{hostname}:{remote}/"
 
             let psi =
                 ProcessStartInfo(
