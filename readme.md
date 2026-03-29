@@ -7,8 +7,9 @@ What it does:
 
 - compare beatmap set ids between two hosts
 - compare skins between two hosts
+- compare scores (play history) between two hosts
 - sync missing beatmaps by copying realm entries and hashed files
-- sync missing skins the same way
+- sync missing skins and scores the same way
 - interactively diff and sync selected `game.ini` keys
 - preserve comments and blank lines when patching `game.ini`
 - use SSH for remote extraction, rsync for file transfer
@@ -18,8 +19,9 @@ The tool reads 2 files:
 **`client.realm`**: it opens the realm database dynamically, walks the
 `BeatmapSet` objects, filters out entries with `DeletePending = true`, and keeps
 only positive `OnlineID` values. It also reads `Skin` objects, filtering out
-deleted and built-in (protected) skins. During sync, it reads full object data
-from the source realm and writes missing entries to the destination realm.
+deleted and built-in (protected) skins, and `Score` objects for play history.
+During sync, it reads full object data from the source realm and writes missing
+entries to the destination realm.
 
 osu! uses versioned realm files (`client_{N}.realm`) in debug builds and plain
 `client.realm` in release builds. osync checks for both, preferring the
@@ -34,6 +36,7 @@ The extracted JSON includes:
 
 - `beatmapSetIds`
 - `skinIdentifiers`
+- `scoreHashes`
 - `settings`
 - `rawSettingsLines`
 - `autoDownload`
@@ -56,7 +59,9 @@ the entries there. This mirrors the existing `extract` pattern: `extract` reads
 state over SSH, `import` writes state over SSH.
 
 Beatmaps are identified by `OnlineID`. Skins are identified by content hash and
-displayed by name. Built-in skins (argon, classic, etc.) are skipped.
+displayed by name. Built-in skins (argon, classic, etc.) are skipped. Scores are
+identified by their content hash and linked to the local beatmap by
+`BeatmapHash` if the matching beatmap exists on the destination.
 
 The sync is one-directional: from `--from` to `--to`. Run it in reverse for the
 other direction. osu! must not be running on the destination when syncing,
@@ -116,8 +121,8 @@ path contains spaces, quote it for the remote shell:
 `--from-osync "'/path with spaces/osync'"`.
 
 The remote protocol uses `osync extract` over SSH for reading state and
-`osync import` over SSH for writing beatmaps and skins. Neither is versioned. In
-practice you should run the same osync build on both sides.
+`osync import` over SSH for writing beatmaps, skins, and scores. Neither is
+versioned. In practice you should run the same osync build on both sides.
 
 Help:
 
@@ -174,7 +179,7 @@ osync extract --dir /some/other/osu/path
 
 `extract` exists mostly for the SSH path, but it is also useful for debugging.
 
-Import missing beatmaps and skins from a source realm file:
+Import missing beatmaps, skins, and scores from a source realm file:
 
 ```bash
 osync import --source-realm /tmp/source.realm
