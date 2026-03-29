@@ -7,6 +7,7 @@ open System.Text.Json
 type MachineState =
     { BeatmapSetIds: Set<int>
       SkinIdentifiers: Map<string, string> // hash -> name
+      ScoreHashes: Set<string>
       Settings: Map<string, string>
       RawSettingsLines: string array
       AutoDownload: bool
@@ -24,6 +25,10 @@ let extractLocal (dirOverride: string option) : Result<MachineState, string> =
 
         let beatmapSetIds = Realm.readBeatmapSetIds dataPath
         let skinIdentifiers = Realm.readSkinIdentifiers dataPath
+
+        let scoreHashes =
+            use realm = Realm.openRealm dataPath
+            Realm.scoreHashesFrom realm
 
         let rawLines =
             if File.Exists(settingsPath) then
@@ -44,6 +49,7 @@ let extractLocal (dirOverride: string option) : Result<MachineState, string> =
         Ok
             { BeatmapSetIds = beatmapSetIds
               SkinIdentifiers = skinIdentifiers
+              ScoreHashes = scoreHashes
               Settings = settings
               RawSettingsLines = rawLines
               AutoDownload = autoDownload
@@ -74,6 +80,14 @@ let serializeExtractJson (state: MachineState) : string =
         writer.WriteString(kv.Key, kv.Value)
 
     writer.WriteEndObject()
+
+    writer.WritePropertyName("scoreHashes")
+    writer.WriteStartArray()
+
+    for h in state.ScoreHashes do
+        writer.WriteStringValue(h)
+
+    writer.WriteEndArray()
 
     writer.WritePropertyName("settings")
     writer.WriteStartObject()
@@ -116,6 +130,11 @@ let parseExtractJson (json: string) : Result<MachineState, string> =
             |> Seq.map (fun p -> p.Name, p.Value.GetString())
             |> Map.ofSeq
 
+        let scoreHashes =
+            root.GetProperty("scoreHashes").EnumerateArray()
+            |> Seq.map (fun e -> e.GetString())
+            |> Set.ofSeq
+
         let settings =
             root.GetProperty("settings").EnumerateObject()
             |> Seq.map (fun p -> p.Name, p.Value.GetString())
@@ -136,6 +155,7 @@ let parseExtractJson (json: string) : Result<MachineState, string> =
         Ok
             { BeatmapSetIds = beatmapSetIds
               SkinIdentifiers = skinIdentifiers
+              ScoreHashes = scoreHashes
               Settings = settings
               RawSettingsLines = rawSettingsLines
               AutoDownload = autoDownload
@@ -309,6 +329,24 @@ let private printSkinDiffs (fromState: MachineState) (toState: MachineState) (fr
 
     (missingOnFrom, missingOnTo)
 
+let private printScoreDiffs (fromState: MachineState) (toState: MachineState) (fromLabel: string) (toLabel: string) =
+    let missingOnTo = Set.difference fromState.ScoreHashes toState.ScoreHashes
+    let missingOnFrom = Set.difference toState.ScoreHashes fromState.ScoreHashes
+
+    eprintfn ""
+    eprintfn "=== Score Differences ==="
+
+    if Set.isEmpty missingOnTo && Set.isEmpty missingOnFrom then
+        eprintfn "  No score differences found."
+    else
+        if not (Set.isEmpty missingOnTo) then
+            eprintfn "  Missing on %s: %d score(s)" toLabel (Set.count missingOnTo)
+
+        if not (Set.isEmpty missingOnFrom) then
+            eprintfn "  Missing on %s: %d score(s)" fromLabel (Set.count missingOnFrom)
+
+    (missingOnFrom, missingOnTo)
+
 let private updateAutoDownload (state: MachineState) : MachineState =
     let key = "AutomaticallyDownloadMissingBeatmaps"
 
@@ -420,7 +458,8 @@ let private readMissing
     (realm: Realms.Realm)
     (missingBeatmapIds: Set<int>)
     (missingSkinHashes: Set<string>)
-    : Realm.BeatmapSetData list * Realm.SkinData list =
+    (missingScoreHashes: Set<string>)
+    : Realm.BeatmapSetData list * Realm.SkinData list * Realm.ScoreData list =
     let beatmapSets =
         if Set.isEmpty missingBeatmapIds then
             []
@@ -433,14 +472,28 @@ let private readMissing
         else
             Realm.readSkins realm missingSkinHashes
 
-    (beatmapSets, skins)
+    let scores =
+        if Set.isEmpty missingScoreHashes then
+            []
+        else
+            Realm.readScores realm missingScoreHashes
 
-let private writeToRealm (realm: Realms.Realm) (beatmapSets: Realm.BeatmapSetData list) (skins: Realm.SkinData list) =
+    (beatmapSets, skins, scores)
+
+let private writeToRealm
+    (realm: Realms.Realm)
+    (beatmapSets: Realm.BeatmapSetData list)
+    (skins: Realm.SkinData list)
+    (scores: Realm.ScoreData list)
+    =
     if not (List.isEmpty beatmapSets) then
         Realm.writeBeatmapSets realm beatmapSets
 
     if not (List.isEmpty skins) then
         Realm.writeSkins realm skins
+
+    if not (List.isEmpty scores) then
+        Realm.writeScores realm scores
 
 let private writeToRemote (config: RunConfig) (toHostname: string) (tempRealmPath: string) : Result<unit, string> =
     let remoteTempRealm = $"/tmp/osync-import-{IO.Path.GetRandomFileName()}"
@@ -474,16 +527,18 @@ let private syncFiles
     (toState: MachineState)
     (missingBeatmapIds: Set<int>)
     (missingSkinHashes: Set<string>)
+    (missingScoreHashes: Set<string>)
     : bool =
     let totalMaps = Set.count missingBeatmapIds
     let totalSkins = Set.count missingSkinHashes
+    let totalScores = Set.count missingScoreHashes
 
-    if totalMaps = 0 && totalSkins = 0 then
+    if totalMaps = 0 && totalSkins = 0 && totalScores = 0 then
         false
     else if
         not (
             promptYesNo
-                $"  Sync %d{totalMaps} beatmap(s) and %d{totalSkins} skin(s) from %s{config.FromLabel} to %s{config.ToLabel}?"
+                $"  Sync %d{totalMaps} beatmap(s), %d{totalSkins} skin(s), and %d{totalScores} score(s) from %s{config.FromLabel} to %s{config.ToLabel}?"
         )
     then
         false
@@ -501,10 +556,10 @@ let private syncFiles
                     use sourceRealm = Realm.openRealmAt tempRealmPath
                     eprintfn "  Reading missing data from %s..." config.FromLabel
 
-                    let (beatmapSets, skins) =
-                        readMissing sourceRealm missingBeatmapIds missingSkinHashes
+                    let (beatmapSets, skins, scores) =
+                        readMissing sourceRealm missingBeatmapIds missingSkinHashes missingScoreHashes
 
-                    let fileHashes = Realm.collectFileHashes beatmapSets skins
+                    let fileHashes = Realm.collectFileHashes beatmapSets skins scores
 
                     if not (Set.isEmpty fileHashes) then
                         eprintfn "  Syncing %d file(s)..." (Set.count fileHashes)
@@ -527,7 +582,7 @@ let private syncFiles
                                 match config.ToHost with
                                 | Localhost ->
                                     use destRealm = Realm.openRealm toState.DataPath
-                                    writeToRealm destRealm beatmapSets skins
+                                    writeToRealm destRealm beatmapSets skins scores
                                     Ok()
                                 | Remote h -> writeToRemote config h tempRealmPath
 
@@ -537,9 +592,10 @@ let private syncFiles
                                 true
                             | Ok() ->
                                 eprintfn
-                                    "  Synced %d beatmap(s) and %d skin(s)."
+                                    "  Synced %d beatmap(s), %d skin(s), and %d score(s)."
                                     (List.length beatmapSets)
                                     (List.length skins)
+                                    (List.length scores)
 
                                 false
                     else
@@ -573,6 +629,9 @@ let run (config: RunConfig) : int =
         let (_skinsMissingOnFrom, skinsMissingOnTo) =
             printSkinDiffs fromState toState config.FromLabel config.ToLabel
 
+        let (_scoresMissingOnFrom, scoresMissingOnTo) =
+            printScoreDiffs fromState toState config.FromLabel config.ToLabel
+
         let mutable hadError = false
         let mutable from = fromState
         let mutable ``to`` = toState
@@ -586,7 +645,7 @@ let run (config: RunConfig) : int =
 
             eprintfn ""
 
-            if syncFiles config from ``to`` missingOnTo skinsMissingOnTo then
+            if syncFiles config from ``to`` missingOnTo skinsMissingOnTo scoresMissingOnTo then
                 hadError <- true
         | Diff -> ()
 
@@ -616,15 +675,28 @@ let runImport (sourceRealmPath: string) (dirOverride: string option) : int =
             let destHashes = Realm.skinIdentifiersFrom destRealm |> Map.keys |> Set.ofSeq
             Set.difference sourceHashes destHashes
 
-        if Set.isEmpty missingBeatmapIds && Set.isEmpty missingSkinHashes then
+        let missingScoreHashes =
+            Set.difference (Realm.scoreHashesFrom sourceRealm) (Realm.scoreHashesFrom destRealm)
+
+        if
+            Set.isEmpty missingBeatmapIds
+            && Set.isEmpty missingSkinHashes
+            && Set.isEmpty missingScoreHashes
+        then
             eprintfn "  Nothing to import."
             0
         else
-            let (beatmapSets, skins) =
-                readMissing sourceRealm missingBeatmapIds missingSkinHashes
+            let (beatmapSets, skins, scores) =
+                readMissing sourceRealm missingBeatmapIds missingSkinHashes missingScoreHashes
 
-            writeToRealm destRealm beatmapSets skins
-            eprintfn "  Imported %d beatmap(s) and %d skin(s)." (List.length beatmapSets) (List.length skins)
+            writeToRealm destRealm beatmapSets skins scores
+
+            eprintfn
+                "  Imported %d beatmap(s), %d skin(s), and %d score(s)."
+                (List.length beatmapSets)
+                (List.length skins)
+                (List.length scores)
+
             0
     with ex ->
         eprintfn "Error: %s" ex.Message

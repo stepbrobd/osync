@@ -67,6 +67,12 @@ let skinIdentifiersFrom (realm: Realm) : Map<string, string> =
         (hash, name))
     |> Map.ofSeq
 
+let scoreHashesFrom (realm: Realm) : Set<string> =
+    realm.DynamicApi.All("Score")
+    |> Seq.filter (fun obj -> not (obj.DynamicApi.Get<bool>("DeletePending")))
+    |> Seq.map (fun obj -> obj.DynamicApi.Get<string>("Hash"))
+    |> Set.ofSeq
+
 let readBeatmapSetIds (dataPath: string) : Set<int> =
     use realm = openRealm dataPath
     beatmapSetIdsFrom realm
@@ -74,6 +80,10 @@ let readBeatmapSetIds (dataPath: string) : Set<int> =
 let readSkinIdentifiers (dataPath: string) : Map<string, string> =
     use realm = openRealm dataPath
     skinIdentifiersFrom realm
+
+let readScoreCount (dataPath: string) : int =
+    use realm = openRealm dataPath
+    scoreHashesFrom realm |> Set.count
 
 // --- Intermediate types for full data transfer ---
 
@@ -142,6 +152,31 @@ type SkinData =
       Creator: string
       InstantiationInfo: string
       Hash: string
+      Files: FileRef list }
+
+type ScoreData =
+    { BeatmapHash: string
+      ClientVersion: string
+      RulesetShortName: string
+      Hash: string
+      TotalScore: int64
+      TotalScoreWithoutMods: int64
+      TotalScoreVersion: int
+      LegacyTotalScore: Nullable<int64>
+      BackgroundReprocessingFailed: bool
+      MaxCombo: int
+      Accuracy: float
+      Date: DateTimeOffset
+      PP: Nullable<float>
+      OnlineID: int64
+      LegacyOnlineID: int64
+      Rank: int
+      IsLegacyScore: bool
+      Combo: int
+      User: UserData
+      ModsJson: string
+      StatisticsJson: string
+      MaximumStatisticsJson: string
       Files: FileRef list }
 
 // --- Full reads ---
@@ -237,6 +272,40 @@ let readSkins (realm: Realm) (hashes: Set<string>) : SkinData list =
           Creator = obj.DynamicApi.Get<string>("Creator")
           InstantiationInfo = obj.DynamicApi.Get<string>("InstantiationInfo")
           Hash = obj.DynamicApi.Get<string>("Hash")
+          Files = readFileRefs obj })
+    |> Seq.toList
+
+let readScores (realm: Realm) (hashes: Set<string>) : ScoreData list =
+    realm.DynamicApi.All("Score")
+    |> Seq.filter (fun obj ->
+        not (obj.DynamicApi.Get<bool>("DeletePending"))
+        && Set.contains (obj.DynamicApi.Get<string>("Hash")) hashes)
+    |> Seq.map (fun obj ->
+        let ruleset = obj.DynamicApi.Get<IRealmObject>("Ruleset")
+        let user = obj.DynamicApi.Get<IEmbeddedObject>("User")
+
+        { BeatmapHash = obj.DynamicApi.Get<string>("BeatmapHash")
+          ClientVersion = obj.DynamicApi.Get<string>("ClientVersion")
+          RulesetShortName = ruleset.DynamicApi.Get<string>("ShortName")
+          Hash = obj.DynamicApi.Get<string>("Hash")
+          TotalScore = obj.DynamicApi.Get<int64>("TotalScore")
+          TotalScoreWithoutMods = obj.DynamicApi.Get<int64>("TotalScoreWithoutMods")
+          TotalScoreVersion = obj.DynamicApi.Get<int>("TotalScoreVersion")
+          LegacyTotalScore = obj.DynamicApi.Get<Nullable<int64>>("LegacyTotalScore")
+          BackgroundReprocessingFailed = obj.DynamicApi.Get<bool>("BackgroundReprocessingFailed")
+          MaxCombo = obj.DynamicApi.Get<int>("MaxCombo")
+          Accuracy = obj.DynamicApi.Get<float>("Accuracy")
+          Date = obj.DynamicApi.Get<DateTimeOffset>("Date")
+          PP = obj.DynamicApi.Get<Nullable<float>>("PP")
+          OnlineID = obj.DynamicApi.Get<int64>("OnlineID")
+          LegacyOnlineID = obj.DynamicApi.Get<int64>("LegacyOnlineID")
+          Rank = obj.DynamicApi.Get<int>("Rank")
+          IsLegacyScore = obj.DynamicApi.Get<bool>("IsLegacyScore")
+          Combo = obj.DynamicApi.Get<int>("Combo")
+          User = readUser user
+          ModsJson = obj.DynamicApi.Get<string>("Mods")
+          StatisticsJson = obj.DynamicApi.Get<string>("Statistics")
+          MaximumStatisticsJson = obj.DynamicApi.Get<string>("MaximumStatistics")
           Files = readFileRefs obj })
     |> Seq.toList
 
@@ -367,11 +436,59 @@ let writeSkins (realm: Realm) (skins: SkinData list) =
 
             writeFileRefs realm obj s.Files)
 
-let collectFileHashes (sets: BeatmapSetData list) (skins: SkinData list) : Set<string> =
-    let beatmapHashes =
-        sets |> List.collect (fun s -> s.Files) |> List.map (fun f -> f.Hash)
+let writeScores (realm: Realm) (scores: ScoreData list) =
+    realm.Write(fun () ->
+        for s in scores do
+            let obj = realm.DynamicApi.CreateObject("Score", Nullable(Guid.NewGuid()))
+            obj.DynamicApi.Set("BeatmapHash", s.BeatmapHash)
+            obj.DynamicApi.Set("ClientVersion", s.ClientVersion)
+            obj.DynamicApi.Set("Hash", s.Hash)
+            obj.DynamicApi.Set("TotalScore", s.TotalScore)
+            obj.DynamicApi.Set("TotalScoreWithoutMods", s.TotalScoreWithoutMods)
+            obj.DynamicApi.Set("TotalScoreVersion", s.TotalScoreVersion)
 
-    let skinHashes =
-        skins |> List.collect (fun s -> s.Files) |> List.map (fun f -> f.Hash)
+            if s.LegacyTotalScore.HasValue then
+                obj.DynamicApi.Set("LegacyTotalScore", s.LegacyTotalScore.Value)
 
-    Set.ofList (beatmapHashes @ skinHashes)
+            obj.DynamicApi.Set("BackgroundReprocessingFailed", s.BackgroundReprocessingFailed)
+            obj.DynamicApi.Set("MaxCombo", s.MaxCombo)
+            obj.DynamicApi.Set("Accuracy", s.Accuracy)
+            obj.DynamicApi.Set("Date", s.Date)
+
+            if s.PP.HasValue then
+                obj.DynamicApi.Set("PP", s.PP.Value)
+
+            obj.DynamicApi.Set("OnlineID", s.OnlineID)
+            obj.DynamicApi.Set("LegacyOnlineID", s.LegacyOnlineID)
+            obj.DynamicApi.Set("Rank", s.Rank)
+            obj.DynamicApi.Set("IsLegacyScore", s.IsLegacyScore)
+            obj.DynamicApi.Set("Combo", s.Combo)
+            obj.DynamicApi.Set("Mods", s.ModsJson)
+            obj.DynamicApi.Set("Statistics", s.StatisticsJson)
+            obj.DynamicApi.Set("MaximumStatistics", s.MaximumStatisticsJson)
+            obj.DynamicApi.Set("DeletePending", false)
+
+            let ruleset = realm.DynamicApi.Find("Ruleset", s.RulesetShortName)
+
+            if ruleset <> null then
+                obj.DynamicApi.Set("Ruleset", RealmValue.Object(ruleset))
+
+            // Link to local beatmap if it exists with matching hash
+            let beatmap =
+                realm.DynamicApi.All("Beatmap")
+                |> Seq.tryFind (fun b -> b.DynamicApi.Get<string>("Hash") = s.BeatmapHash)
+
+            match beatmap with
+            | Some b -> obj.DynamicApi.Set("BeatmapInfo", RealmValue.Object(b))
+            | None -> ()
+
+            writeUser realm obj "User" s.User
+            writeFileRefs realm obj s.Files)
+
+let collectFileHashes (sets: BeatmapSetData list) (skins: SkinData list) (scores: ScoreData list) : Set<string> =
+    [ sets |> List.collect (fun s -> s.Files)
+      skins |> List.collect (fun s -> s.Files)
+      scores |> List.collect (fun s -> s.Files) ]
+    |> List.concat
+    |> List.map (fun f -> f.Hash)
+    |> Set.ofList
