@@ -81,9 +81,12 @@ These keys are intentionally excluded from the normal settings diff:
 - `ShowMobileDisclaimer`
 - `AutomaticallyDownloadMissingBeatmaps`
 
-The last key is managed separately by the dedicated auto-download prompt. It is
-not shown again in the normal settings diff, because that just creates a second
-prompt for the same decision and makes it easy to undo yourself.
+The last key is managed separately by the dedicated auto-download prompt. Since
+osync now transfers beatmap files directly, this setting mainly serves as a
+fallback for maps that were not synced (for example, maps added after the last
+sync). It is not shown again in the normal settings diff, because that just
+creates a second prompt for the same decision and makes it easy to undo
+yourself.
 
 When osync writes `game.ini`, it patches in place:
 
