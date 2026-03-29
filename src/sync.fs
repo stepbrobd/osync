@@ -416,189 +416,46 @@ let private hostOption (h: ResolvedHost) =
     | Remote h -> Some h
     | Localhost -> None
 
-let private syncFilesLocal
+let private writeToLocal (toState: MachineState) (beatmapSets: Realm.BeatmapSetData list) (skins: Realm.SkinData list) =
+    use destRealm = Realm.openRealm toState.DataPath
+
+    if not (List.isEmpty beatmapSets) then
+        Realm.writeBeatmapSets destRealm beatmapSets
+
+    if not (List.isEmpty skins) then
+        Realm.writeSkins destRealm skins
+
+    Ok()
+
+let private writeToRemote
     (config: RunConfig)
-    (fromState: MachineState)
-    (toState: MachineState)
-    (missingBeatmapIds: Set<int>)
-    (missingSkinHashes: Set<string>)
-    : bool =
-    let totalMaps = Set.count missingBeatmapIds
-    let totalSkins = Set.count missingSkinHashes
+    (toHostname: string)
+    (tempRealmPath: string)
+    : Result<unit, string> =
+    let remoteTempRealm = $"/tmp/osync-import-{IO.Path.GetRandomFileName()}"
 
-    eprintfn ""
-    eprintfn "  Copying realm database from %s..." config.FromLabel
+    match Ssh.scpToRemote tempRealmPath toHostname remoteTempRealm with
+    | Error e -> Error $"Error copying realm to {config.ToLabel}: {e}"
+    | Ok _ ->
+        let importCmd =
+            let dirArg =
+                match config.ToDir with
+                | Some d -> $" --dir {Ssh.shellEscape d}"
+                | None -> ""
 
-    match Ssh.copyRealmToTemp (hostOption config.FromHost) fromState.RealmPath with
-    | Error e ->
-        eprintfn "  Error: %s" e
-        true
-    | Ok tempRealmPath ->
-        try
-            try
-                use sourceRealm = Realm.openRealmAt tempRealmPath
+            $"{config.ToOsync} import --source-realm {Ssh.shellEscape remoteTempRealm}{dirArg}"
 
-                let beatmapSets =
-                    if Set.isEmpty missingBeatmapIds then
-                        []
-                    else
-                        eprintfn "  Reading %d beatmap set(s) from %s..." totalMaps config.FromLabel
-                        Realm.readBeatmapSets sourceRealm missingBeatmapIds
+        let result =
+            match Ssh.runRemote toHostname importCmd with
+            | Error e -> Error $"Error running import on {config.ToLabel}: {e}"
+            | Ok output ->
+                if output.Length > 0 then
+                    eprintf "%s" output
 
-                let skins =
-                    if Set.isEmpty missingSkinHashes then
-                        []
-                    else
-                        eprintfn "  Reading %d skin(s) from %s..." totalSkins config.FromLabel
-                        Realm.readSkins sourceRealm missingSkinHashes
+                Ok()
 
-                let fileHashes = Realm.collectFileHashes beatmapSets skins
-
-                if not (Set.isEmpty fileHashes) then
-                    eprintfn "  Syncing %d file(s)..." (Set.count fileHashes)
-
-                    match
-                        Ssh.rsyncFiles (hostOption config.FromHost) None fromState.DataPath toState.DataPath fileHashes
-                    with
-                    | Error e ->
-                        eprintfn "  Error syncing files: %s" e
-                        true
-                    | Ok() ->
-                        eprintfn "  Writing to realm on %s..." config.ToLabel
-
-                        use destRealm = Realm.openRealm toState.DataPath
-
-                        if not (List.isEmpty beatmapSets) then
-                            Realm.writeBeatmapSets destRealm beatmapSets
-
-                        if not (List.isEmpty skins) then
-                            Realm.writeSkins destRealm skins
-
-                        eprintfn "  Synced %d beatmap(s) and %d skin(s)." (List.length beatmapSets) (List.length skins)
-                        false
-                else
-                    eprintfn "  No files to sync."
-                    false
-            with ex ->
-                eprintfn "  Error during sync: %s" ex.Message
-                true
-        finally
-            if File.Exists(tempRealmPath) then
-                File.Delete(tempRealmPath)
-
-let private syncFilesRemote
-    (config: RunConfig)
-    (fromState: MachineState)
-    (toState: MachineState)
-    (missingBeatmapIds: Set<int>)
-    (missingSkinHashes: Set<string>)
-    : bool =
-    let toHostname =
-        match config.ToHost with
-        | Remote h -> h
-        | Localhost -> failwith "syncFilesRemote called with local destination"
-
-    let totalMaps = Set.count missingBeatmapIds
-    let totalSkins = Set.count missingSkinHashes
-
-    eprintfn ""
-    eprintfn "  Copying realm database from %s..." config.FromLabel
-
-    // Get a local copy of the source realm
-    let localRealmResult =
-        match config.FromHost with
-        | Localhost -> Ok fromState.RealmPath
-        | Remote _ -> Ssh.copyRealmToTemp (hostOption config.FromHost) fromState.RealmPath
-
-    match localRealmResult with
-    | Error e ->
-        eprintfn "  Error: %s" e
-        true
-    | Ok localRealmPath ->
-        let isTemp = localRealmPath <> fromState.RealmPath
-
-        try
-            try
-                use sourceRealm = Realm.openRealmAt localRealmPath
-
-                let beatmapSets =
-                    if Set.isEmpty missingBeatmapIds then
-                        []
-                    else
-                        eprintfn "  Reading %d beatmap set(s) from %s..." totalMaps config.FromLabel
-                        Realm.readBeatmapSets sourceRealm missingBeatmapIds
-
-                let skins =
-                    if Set.isEmpty missingSkinHashes then
-                        []
-                    else
-                        eprintfn "  Reading %d skin(s) from %s..." totalSkins config.FromLabel
-                        Realm.readSkins sourceRealm missingSkinHashes
-
-                let fileHashes = Realm.collectFileHashes beatmapSets skins
-
-                if not (Set.isEmpty fileHashes) then
-                    eprintfn "  Syncing %d file(s) to %s..." (Set.count fileHashes) config.ToLabel
-
-                    match
-                        Ssh.rsyncFiles
-                            (hostOption config.FromHost)
-                            (Some toHostname)
-                            fromState.DataPath
-                            toState.DataPath
-                            fileHashes
-                    with
-                    | Error e ->
-                        eprintfn "  Error syncing files: %s" e
-                        true
-                    | Ok() ->
-                        // scp source realm to remote temp, run osync import there
-                        let remoteTempRealm = $"/tmp/osync-import-{System.IO.Path.GetRandomFileName()}"
-
-                        eprintfn "  Writing to realm on %s..." config.ToLabel
-
-                        match Ssh.scpToRemote localRealmPath toHostname remoteTempRealm with
-                        | Error e ->
-                            eprintfn "  Error copying realm to %s: %s" config.ToLabel e
-                            true
-                        | Ok _ ->
-                            let importCmd =
-                                let dirArg =
-                                    match config.ToDir with
-                                    | Some d -> $" --dir {Ssh.shellEscape d}"
-                                    | None -> ""
-
-                                $"{config.ToOsync} import --source-realm {Ssh.shellEscape remoteTempRealm}{dirArg}"
-
-                            match Ssh.runRemote toHostname importCmd with
-                            | Error e ->
-                                eprintfn "  Error running import on %s: %s" config.ToLabel e
-                                // clean up remote temp
-                                Ssh.runRemote toHostname $"rm -f {Ssh.shellEscape remoteTempRealm}" |> ignore
-
-                                true
-                            | Ok output ->
-                                if output.Length > 0 then
-                                    eprintf "%s" output
-
-                                // clean up remote temp
-                                Ssh.runRemote toHostname $"rm -f {Ssh.shellEscape remoteTempRealm}" |> ignore
-
-                                eprintfn
-                                    "  Synced %d beatmap(s) and %d skin(s)."
-                                    (List.length beatmapSets)
-                                    (List.length skins)
-
-                                false
-                else
-                    eprintfn "  No files to sync."
-                    false
-            with ex ->
-                eprintfn "  Error during sync: %s" ex.Message
-                true
-        finally
-            if isTemp && File.Exists(localRealmPath) then
-                File.Delete(localRealmPath)
+        Ssh.runRemote toHostname $"rm -f {Ssh.shellEscape remoteTempRealm}" |> ignore
+        result
 
 let private syncFiles
     (config: RunConfig)
@@ -620,9 +477,76 @@ let private syncFiles
     then
         false
     else
-        match config.ToHost with
-        | Localhost -> syncFilesLocal config fromState toState missingBeatmapIds missingSkinHashes
-        | Remote _ -> syncFilesRemote config fromState toState missingBeatmapIds missingSkinHashes
+        eprintfn ""
+        eprintfn "  Copying realm database from %s..." config.FromLabel
+
+        match Ssh.copyRealmToTemp (hostOption config.FromHost) fromState.RealmPath with
+        | Error e ->
+            eprintfn "  Error: %s" e
+            true
+        | Ok tempRealmPath ->
+            try
+                try
+                    use sourceRealm = Realm.openRealmAt tempRealmPath
+
+                    let beatmapSets =
+                        if Set.isEmpty missingBeatmapIds then
+                            []
+                        else
+                            eprintfn "  Reading %d beatmap set(s) from %s..." totalMaps config.FromLabel
+                            Realm.readBeatmapSets sourceRealm missingBeatmapIds
+
+                    let skins =
+                        if Set.isEmpty missingSkinHashes then
+                            []
+                        else
+                            eprintfn "  Reading %d skin(s) from %s..." totalSkins config.FromLabel
+                            Realm.readSkins sourceRealm missingSkinHashes
+
+                    let fileHashes = Realm.collectFileHashes beatmapSets skins
+
+                    if not (Set.isEmpty fileHashes) then
+                        eprintfn "  Syncing %d file(s)..." (Set.count fileHashes)
+
+                        match
+                            Ssh.rsyncFiles
+                                (hostOption config.FromHost)
+                                (hostOption config.ToHost)
+                                fromState.DataPath
+                                toState.DataPath
+                                fileHashes
+                        with
+                        | Error e ->
+                            eprintfn "  Error syncing files: %s" e
+                            true
+                        | Ok() ->
+                            eprintfn "  Writing to realm on %s..." config.ToLabel
+
+                            let writeResult =
+                                match config.ToHost with
+                                | Localhost -> writeToLocal toState beatmapSets skins
+                                | Remote h -> writeToRemote config h tempRealmPath
+
+                            match writeResult with
+                            | Error e ->
+                                eprintfn "  %s" e
+                                true
+                            | Ok() ->
+                                eprintfn
+                                    "  Synced %d beatmap(s) and %d skin(s)."
+                                    (List.length beatmapSets)
+                                    (List.length skins)
+
+                                false
+                    else
+                        eprintfn "  No files to sync."
+                        false
+                with ex ->
+                    eprintfn "  Error during sync: %s" ex.Message
+                    true
+            finally
+                if File.Exists(tempRealmPath) then
+                    File.Delete(tempRealmPath)
 
 let run (config: RunConfig) : int =
     eprintfn "Extracting state from %s..." config.FromLabel
@@ -680,41 +604,13 @@ let runImport (sourceRealmPath: string) (dirOverride: string option) : int =
         use sourceRealm = Realm.openRealmAt sourceRealmPath
         use destRealm = Realm.openRealm destDataPath
 
-        let sourceIds =
-            sourceRealm.DynamicApi.All("BeatmapSet")
-            |> Seq.filter (fun obj ->
-                not (obj.DynamicApi.Get<bool>("DeletePending"))
-                && obj.DynamicApi.Get<int>("OnlineID") > 0)
-            |> Seq.map (fun obj -> obj.DynamicApi.Get<int>("OnlineID"))
-            |> Set.ofSeq
+        let missingBeatmapIds =
+            Set.difference (Realm.beatmapSetIdsFrom sourceRealm) (Realm.beatmapSetIdsFrom destRealm)
 
-        let destIds =
-            destRealm.DynamicApi.All("BeatmapSet")
-            |> Seq.filter (fun obj ->
-                not (obj.DynamicApi.Get<bool>("DeletePending"))
-                && obj.DynamicApi.Get<int>("OnlineID") > 0)
-            |> Seq.map (fun obj -> obj.DynamicApi.Get<int>("OnlineID"))
-            |> Set.ofSeq
-
-        let missingBeatmapIds = Set.difference sourceIds destIds
-
-        let sourceSkinHashes =
-            sourceRealm.DynamicApi.All("Skin")
-            |> Seq.filter (fun obj ->
-                not (obj.DynamicApi.Get<bool>("DeletePending"))
-                && not (obj.DynamicApi.Get<bool>("Protected")))
-            |> Seq.map (fun obj -> obj.DynamicApi.Get<string>("Hash"))
-            |> Set.ofSeq
-
-        let destSkinHashes =
-            destRealm.DynamicApi.All("Skin")
-            |> Seq.filter (fun obj ->
-                not (obj.DynamicApi.Get<bool>("DeletePending"))
-                && not (obj.DynamicApi.Get<bool>("Protected")))
-            |> Seq.map (fun obj -> obj.DynamicApi.Get<string>("Hash"))
-            |> Set.ofSeq
-
-        let missingSkinHashes = Set.difference sourceSkinHashes destSkinHashes
+        let missingSkinHashes =
+            let sourceHashes = Realm.skinIdentifiersFrom sourceRealm |> Map.keys |> Set.ofSeq
+            let destHashes = Realm.skinIdentifiersFrom destRealm |> Map.keys |> Set.ofSeq
+            Set.difference sourceHashes destHashes
 
         if Set.isEmpty missingBeatmapIds && Set.isEmpty missingSkinHashes then
             eprintfn "  Nothing to import."

@@ -25,9 +25,10 @@ osu! uses versioned realm files (`client_{N}.realm`) in debug builds and plain
 `client.realm` in release builds. osync checks for both, preferring the
 versioned file if it exists.
 
-**`game.ini`**: it parses setting lines by splitting on the first `=` only.
-Malformed lines are ignored. Blank lines, comments, and other non-setting lines
-are carried through untouched when the file is later patched.
+**`game.ini`**: it parses setting lines by looking for ` = ` (with spaces). Lines
+without that pattern are not treated as settings. Blank lines, comments, and
+other non-setting lines are carried through untouched when the file is later
+patched.
 
 The extracted JSON includes:
 

@@ -48,9 +48,7 @@ let openRealmAt (path: string) =
 
 // --- Lightweight reads (IDs only) ---
 
-let readBeatmapSetIds (dataPath: string) : Set<int> =
-    use realm = openRealm dataPath
-
+let beatmapSetIdsFrom (realm: Realm) : Set<int> =
     realm.DynamicApi.All("BeatmapSet")
     |> Seq.filter (fun obj ->
         not (obj.DynamicApi.Get<bool>("DeletePending"))
@@ -58,9 +56,7 @@ let readBeatmapSetIds (dataPath: string) : Set<int> =
     |> Seq.map (fun obj -> obj.DynamicApi.Get<int>("OnlineID"))
     |> Set.ofSeq
 
-let readSkinIdentifiers (dataPath: string) : Map<string, string> =
-    use realm = openRealm dataPath
-
+let skinIdentifiersFrom (realm: Realm) : Map<string, string> =
     realm.DynamicApi.All("Skin")
     |> Seq.filter (fun obj ->
         not (obj.DynamicApi.Get<bool>("DeletePending"))
@@ -70,6 +66,14 @@ let readSkinIdentifiers (dataPath: string) : Map<string, string> =
         let name = obj.DynamicApi.Get<string>("Name")
         (hash, name))
     |> Map.ofSeq
+
+let readBeatmapSetIds (dataPath: string) : Set<int> =
+    use realm = openRealm dataPath
+    beatmapSetIdsFrom realm
+
+let readSkinIdentifiers (dataPath: string) : Map<string, string> =
+    use realm = openRealm dataPath
+    skinIdentifiersFrom realm
 
 // --- Intermediate types for full data transfer ---
 

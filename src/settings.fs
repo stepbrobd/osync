@@ -1,7 +1,5 @@
 module Osync.Settings
 
-open System.IO
-
 let excludedKeys =
     Set.ofList
         [ "Token"
@@ -27,8 +25,6 @@ let parseLines (lines: string array) : Map<string, string> =
             let value = line.Substring(idx + 3)
             Some(key, value))
     |> Map.ofArray
-
-let parse (path: string) : Map<string, string> = File.ReadAllLines(path) |> parseLines
 
 let diff (local: Map<string, string>) (remote: Map<string, string>) : SettingsDiff list =
     let allKeys =
