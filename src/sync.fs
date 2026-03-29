@@ -442,11 +442,7 @@ let private writeToRealm (realm: Realms.Realm) (beatmapSets: Realm.BeatmapSetDat
     if not (List.isEmpty skins) then
         Realm.writeSkins realm skins
 
-let private writeToRemote
-    (config: RunConfig)
-    (toHostname: string)
-    (tempRealmPath: string)
-    : Result<unit, string> =
+let private writeToRemote (config: RunConfig) (toHostname: string) (tempRealmPath: string) : Result<unit, string> =
     let remoteTempRealm = $"/tmp/osync-import-{IO.Path.GetRandomFileName()}"
 
     match Ssh.scpToRemote tempRealmPath toHostname remoteTempRealm with
@@ -504,7 +500,10 @@ let private syncFiles
                 try
                     use sourceRealm = Realm.openRealmAt tempRealmPath
                     eprintfn "  Reading missing data from %s..." config.FromLabel
-                    let (beatmapSets, skins) = readMissing sourceRealm missingBeatmapIds missingSkinHashes
+
+                    let (beatmapSets, skins) =
+                        readMissing sourceRealm missingBeatmapIds missingSkinHashes
+
                     let fileHashes = Realm.collectFileHashes beatmapSets skins
 
                     if not (Set.isEmpty fileHashes) then
@@ -621,7 +620,9 @@ let runImport (sourceRealmPath: string) (dirOverride: string option) : int =
             eprintfn "  Nothing to import."
             0
         else
-            let (beatmapSets, skins) = readMissing sourceRealm missingBeatmapIds missingSkinHashes
+            let (beatmapSets, skins) =
+                readMissing sourceRealm missingBeatmapIds missingSkinHashes
+
             writeToRealm destRealm beatmapSets skins
             eprintfn "  Imported %d beatmap(s) and %d skin(s)." (List.length beatmapSets) (List.length skins)
             0
