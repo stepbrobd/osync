@@ -681,3 +681,73 @@ let run (config: RunConfig) : int =
         else
             eprintfn "Done."
             0
+
+let runImport (sourceRealmPath: string) (dirOverride: string option) : int =
+    try
+        let destDataPath = dirOverride |> Option.defaultWith Realm.getOsuDataPath
+        use sourceRealm = Realm.openRealmAt sourceRealmPath
+        use destRealm = Realm.openRealm destDataPath
+
+        let sourceIds =
+            sourceRealm.DynamicApi.All("BeatmapSet")
+            |> Seq.filter (fun obj ->
+                not (obj.DynamicApi.Get<bool>("DeletePending"))
+                && obj.DynamicApi.Get<int>("OnlineID") > 0)
+            |> Seq.map (fun obj -> obj.DynamicApi.Get<int>("OnlineID"))
+            |> Set.ofSeq
+
+        let destIds =
+            destRealm.DynamicApi.All("BeatmapSet")
+            |> Seq.filter (fun obj ->
+                not (obj.DynamicApi.Get<bool>("DeletePending"))
+                && obj.DynamicApi.Get<int>("OnlineID") > 0)
+            |> Seq.map (fun obj -> obj.DynamicApi.Get<int>("OnlineID"))
+            |> Set.ofSeq
+
+        let missingBeatmapIds = Set.difference sourceIds destIds
+
+        let sourceSkinHashes =
+            sourceRealm.DynamicApi.All("Skin")
+            |> Seq.filter (fun obj ->
+                not (obj.DynamicApi.Get<bool>("DeletePending"))
+                && not (obj.DynamicApi.Get<bool>("Protected")))
+            |> Seq.map (fun obj -> obj.DynamicApi.Get<string>("Hash"))
+            |> Set.ofSeq
+
+        let destSkinHashes =
+            destRealm.DynamicApi.All("Skin")
+            |> Seq.filter (fun obj ->
+                not (obj.DynamicApi.Get<bool>("DeletePending"))
+                && not (obj.DynamicApi.Get<bool>("Protected")))
+            |> Seq.map (fun obj -> obj.DynamicApi.Get<string>("Hash"))
+            |> Set.ofSeq
+
+        let missingSkinHashes = Set.difference sourceSkinHashes destSkinHashes
+
+        if Set.isEmpty missingBeatmapIds && Set.isEmpty missingSkinHashes then
+            eprintfn "  Nothing to import."
+            0
+        else
+            let beatmapSets =
+                if Set.isEmpty missingBeatmapIds then
+                    []
+                else
+                    Realm.readBeatmapSets sourceRealm missingBeatmapIds
+
+            let skins =
+                if Set.isEmpty missingSkinHashes then
+                    []
+                else
+                    Realm.readSkins sourceRealm missingSkinHashes
+
+            if not (List.isEmpty beatmapSets) then
+                Realm.writeBeatmapSets destRealm beatmapSets
+
+            if not (List.isEmpty skins) then
+                Realm.writeSkins destRealm skins
+
+            eprintfn "  Imported %d beatmap(s) and %d skin(s)." (List.length beatmapSets) (List.length skins)
+            0
+    with ex ->
+        eprintfn "Error: %s" ex.Message
+        1

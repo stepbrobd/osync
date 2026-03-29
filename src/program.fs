@@ -49,6 +49,17 @@ type DiffArgs =
             | Between_Osync _ -> "Path to osync binary on the first host."
             | And_Osync _ -> "Path to osync binary on the second host."
 
+[<CliPrefix(CliPrefix.DoubleDash)>]
+type ImportArgs =
+    | [<AltCommandLine("-d")>] Dir of path: string
+    | Source_Realm of path: string
+
+    interface IArgParserTemplate with
+        member this.Usage =
+            match this with
+            | Dir _ -> "Override the osu! data directory path."
+            | Source_Realm _ -> "Path to source realm file to import from."
+
 let version =
     System.Reflection.Assembly.GetExecutingAssembly().GetName().Version
     |> fun v -> $"{v.Major}.{v.Minor}.{v.Build}"
@@ -57,6 +68,7 @@ type OsyncArgs =
     | [<CliPrefix(CliPrefix.None)>] Sync of ParseResults<SyncArgs>
     | [<CliPrefix(CliPrefix.None)>] Diff of ParseResults<DiffArgs>
     | [<CliPrefix(CliPrefix.None)>] Extract of ParseResults<ExtractArgs>
+    | [<CliPrefix(CliPrefix.None)>] Import of ParseResults<ImportArgs>
     | [<CliPrefix(CliPrefix.DoubleDash)>] Version
 
     interface IArgParserTemplate with
@@ -65,6 +77,7 @@ type OsyncArgs =
             | Sync _ -> "Synchronize beatmaps and settings between two hosts."
             | Diff _ -> "Show differences between two hosts without making changes."
             | Extract _ -> "Extract local state as JSON (used internally over SSH)."
+            | Import _ -> "Import missing beatmaps and skins from a source realm file."
             | Version -> "Show version."
 
 let private runExtract (results: ParseResults<ExtractArgs>) : int =
@@ -163,6 +176,15 @@ let private runDiff (results: ParseResults<DiffArgs>) : int =
               FromLabel = fromLabel
               ToLabel = toLabel }
 
+let private runImport (results: ParseResults<ImportArgs>) : int =
+    match results.TryGetResult ImportArgs.Source_Realm with
+    | None ->
+        eprintfn "Error: --source-realm is required."
+        1
+    | Some sourceRealm ->
+        let dirOverride = results.TryGetResult ImportArgs.Dir
+        Sync.runImport sourceRealm dirOverride
+
 [<EntryPoint>]
 let main argv =
     let parser = ArgumentParser.Create<OsyncArgs>(programName = "osync")
@@ -178,6 +200,7 @@ let main argv =
             | Sync syncResults -> runSync syncResults
             | Diff diffResults -> runDiff diffResults
             | Extract extractResults -> runExtract extractResults
+            | Import importResults -> runImport importResults
             | Version -> 0
     with
     | :? ArguParseException as ex ->
