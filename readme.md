@@ -208,3 +208,148 @@ osync import --source-realm /tmp/source.realm --dir /some/other/osu/path
 `import` is used internally by the remote destination sync path. It reads
 missing items from the source realm and writes them to the local realm. You
 generally do not need to call this directly.
+
+Sample output (note that I have setup direct ssh access between these 2
+machines):
+
+```console
+$ nix run --refresh github:stepbrobd/osync -- sync --from framework --from-osync 'nix run --refresh github:stepbrobd/osync --'
+Extracting state from framework...
+Extracting state from localhost...
+
+=== Beatmap Differences ===
+
+  Missing on localhost (796 maps):
+    https://osu.ppy.sh/beatmapsets/12563
+    https://osu.ppy.sh/beatmapsets/15211
+    https://osu.ppy.sh/beatmapsets/18775
+    https://osu.ppy.sh/beatmapsets/21872
+    https://osu.ppy.sh/beatmapsets/36333
+    https://osu.ppy.sh/beatmapsets/38629
+    https://osu.ppy.sh/beatmapsets/43701
+    https://osu.ppy.sh/beatmapsets/45720
+    https://osu.ppy.sh/beatmapsets/48076
+    https://osu.ppy.sh/beatmapsets/52506
+    https://osu.ppy.sh/beatmapsets/54707
+    https://osu.ppy.sh/beatmapsets/54782
+    https://osu.ppy.sh/beatmapsets/55699
+    https://osu.ppy.sh/beatmapsets/56404
+    https://osu.ppy.sh/beatmapsets/57368
+    https://osu.ppy.sh/beatmapsets/63089
+    https://osu.ppy.sh/beatmapsets/73844
+    https://osu.ppy.sh/beatmapsets/80659
+    https://osu.ppy.sh/beatmapsets/104541
+    https://osu.ppy.sh/beatmapsets/107796
+    ... and 776 more
+
+=== Skin Differences ===
+
+  Missing on localhost (1 skins):
+    osu! "argon" pro (2022) (modified)
+
+=== Score Differences ===
+  Missing on localhost: 4326 score(s)
+
+  Sync 796 beatmap(s), 1 skin(s), and 4326 score(s) from framework to localhost? [y/N]
+y
+
+  Copying realm database from framework...
+client.realm                                                    100%   10MB  96.0MB/s   00:00
+  Reading missing data from framework...
+  Syncing 18821 file(s)...
+  9,227,345,310 100%  103.39MB/s    0:01:25 (xfr#18821, to-chk=0/19093)
+  Writing to realm on localhost...
+  Synced 796 beatmap(s), 1 skin(s), and 4326 score(s).
+
+=== Settings Differences ===
+  Found 21 setting(s) that differ.
+
+  AutomaticallyAdjustBeatmapOffset: framework=True, localhost=False
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  BeatmapDetailModsFilter: framework=True, localhost=False
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  BeatmapListingFeaturedArtistFilter: framework=False, localhost=True
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  DimLevel: framework=1.0, localhost=0.7
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  ExternalLinkWarning: framework=False, localhost=True
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  IntroSequence: framework=Random, localhost=Triangles
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  LastOnlineTagsPopulation: framework=02/03/2026 00:00:00, localhost=
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  MenuBackgroundSource: framework=BeatmapWithStoryboard, localhost=Skin
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  MouseDisableButtons: framework=True, localhost=False
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  MouseDisableWheel: framework=True, localhost=False
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  MultiplayerRoomFilter: framework=Public, localhost=All
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  Prefer24HourTime: framework=True, localhost=False
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  Ruleset: framework=osu, localhost=
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  ShowConvertedBeatmaps: framework=False, localhost=True
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  ShowFpsDisplay: framework=True, localhost=False
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  ShowOnlineExplicitContent: framework=True, localhost=False
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  Skin: framework=62d19f56-6215-4ee3-8ad4-19bfa9aeebfb, localhost=cffa69de-b3e3-4dee-8563-3c4f425c05d0
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > s
+
+  SongSelectSortingMode: framework=DateAdded, localhost=Title
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  TouchDisableGameplayTaps: framework=True, localhost=False
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  Username: framework=stepbrobd, localhost=
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  WasSupporter: framework=True, localhost=False
+  [F]rom (framework) / [T]o (localhost) / [S]kip?
+  > f
+
+  Writing updated settings to localhost...
+  Done.
+
+Done.
+```
