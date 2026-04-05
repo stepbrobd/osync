@@ -1,6 +1,5 @@
 module Osync.Ssh
 
-open System
 open System.Diagnostics
 open System.IO
 
@@ -114,6 +113,9 @@ let rsyncFiles
             let srcFilesDir = Path.Combine(srcDataPath, "files")
             let destFilesDir = Path.Combine(destDataPath, "files")
 
+            // Use --rsync-path to cd on the remote side so the remote path is
+            // just ".". This avoids spaces in remote paths (e.g. macOS
+            // "Application Support") which rsync cannot handle portably.
             let (srcFiles, destFiles, extraArgs) =
                 match srcHost, destHost with
                 | Some hostname, None ->
