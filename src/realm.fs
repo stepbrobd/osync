@@ -104,7 +104,8 @@ type DifficultyData =
       SliderTickRate: float }
 
 type BeatmapData =
-    { DifficultyName: string
+    { Id: Guid
+      DifficultyName: string
       RulesetShortName: string
       Status: int
       OnlineID: int
@@ -127,7 +128,8 @@ type BeatmapData =
       Offset: float }
 
 type BeatmapSetData =
-    { OnlineID: int
+    { Id: Guid
+      OnlineID: int
       DateAdded: DateTimeOffset
       DateSubmitted: Nullable<DateTimeOffset>
       DateRanked: Nullable<DateTimeOffset>
@@ -137,14 +139,16 @@ type BeatmapSetData =
       Beatmaps: BeatmapData list }
 
 type SkinData =
-    { Name: string
+    { Id: Guid
+      Name: string
       Creator: string
       InstantiationInfo: string
       Hash: string
       Files: FileRef list }
 
 type ScoreData =
-    { BeatmapHash: string
+    { Id: Guid
+      BeatmapHash: string
       ClientVersion: string
       RulesetShortName: string
       Hash: string
@@ -207,7 +211,8 @@ let private readDifficulty (obj: IEmbeddedObject) : DifficultyData =
 let private readBeatmap (obj: IRealmObject) : BeatmapData =
     let ruleset = obj.DynamicApi.Get<IRealmObject>("Ruleset")
 
-    { DifficultyName = obj.DynamicApi.Get<string>("DifficultyName")
+    { Id = obj.DynamicApi.Get<Guid>("ID")
+      DifficultyName = obj.DynamicApi.Get<string>("DifficultyName")
       RulesetShortName = ruleset.DynamicApi.Get<string>("ShortName")
       Status = obj.DynamicApi.Get<int>("Status")
       OnlineID = obj.DynamicApi.Get<int>("OnlineID")
@@ -237,7 +242,8 @@ let readBeatmapSets (realm: Realm) (onlineIds: Set<int>) : BeatmapSetData list =
         not (obj.DynamicApi.Get<bool>("DeletePending"))
         && Set.contains (obj.DynamicApi.Get<int>("OnlineID")) onlineIds)
     |> Seq.map (fun obj ->
-        { OnlineID = obj.DynamicApi.Get<int>("OnlineID")
+        { Id = obj.DynamicApi.Get<Guid>("ID")
+          OnlineID = obj.DynamicApi.Get<int>("OnlineID")
           DateAdded = obj.DynamicApi.Get<DateTimeOffset>("DateAdded")
           DateSubmitted = obj.DynamicApi.Get<Nullable<DateTimeOffset>>("DateSubmitted")
           DateRanked = obj.DynamicApi.Get<Nullable<DateTimeOffset>>("DateRanked")
@@ -257,7 +263,8 @@ let readSkins (realm: Realm) (hashes: Set<string>) : SkinData list =
         && not (obj.DynamicApi.Get<bool>("Protected"))
         && Set.contains (obj.DynamicApi.Get<string>("Hash")) hashes)
     |> Seq.map (fun obj ->
-        { Name = obj.DynamicApi.Get<string>("Name")
+        { Id = obj.DynamicApi.Get<Guid>("ID")
+          Name = obj.DynamicApi.Get<string>("Name")
           Creator = obj.DynamicApi.Get<string>("Creator")
           InstantiationInfo = obj.DynamicApi.Get<string>("InstantiationInfo")
           Hash = obj.DynamicApi.Get<string>("Hash")
@@ -273,7 +280,8 @@ let readScores (realm: Realm) (hashes: Set<string>) : ScoreData list =
         let ruleset = obj.DynamicApi.Get<IRealmObject>("Ruleset")
         let user = obj.DynamicApi.Get<IEmbeddedObject>("User")
 
-        { BeatmapHash = obj.DynamicApi.Get<string>("BeatmapHash")
+        { Id = obj.DynamicApi.Get<Guid>("ID")
+          BeatmapHash = obj.DynamicApi.Get<string>("BeatmapHash")
           ClientVersion = obj.DynamicApi.Get<string>("ClientVersion")
           RulesetShortName = ruleset.DynamicApi.Get<string>("ShortName")
           Hash = obj.DynamicApi.Get<string>("Hash")
@@ -349,7 +357,7 @@ let private writeUserSettings (realm: Realm) (parent: IRealmObjectBase) (offset:
 
 let private writeBeatmap (realm: Realm) (setObj: IRealmObjectBase) (b: BeatmapData) =
     let list = setObj.DynamicApi.GetList<IRealmObject>("Beatmaps")
-    let obj = realm.DynamicApi.CreateObject("Beatmap", Nullable(Guid.NewGuid()))
+    let obj = realm.DynamicApi.CreateObject("Beatmap", Nullable(b.Id))
     obj.DynamicApi.Set("DifficultyName", b.DifficultyName)
     obj.DynamicApi.Set("Status", b.Status)
     obj.DynamicApi.Set("OnlineID", b.OnlineID)
@@ -392,7 +400,7 @@ let private writeBeatmap (realm: Realm) (setObj: IRealmObjectBase) (b: BeatmapDa
 let writeBeatmapSets (realm: Realm) (sets: BeatmapSetData list) =
     realm.Write(fun () ->
         for s in sets do
-            let obj = realm.DynamicApi.CreateObject("BeatmapSet", Nullable(Guid.NewGuid()))
+            let obj = realm.DynamicApi.CreateObject("BeatmapSet", Nullable(s.Id))
             obj.DynamicApi.Set("OnlineID", s.OnlineID)
             obj.DynamicApi.Set("DateAdded", s.DateAdded)
 
@@ -415,7 +423,7 @@ let writeBeatmapSets (realm: Realm) (sets: BeatmapSetData list) =
 let writeSkins (realm: Realm) (skins: SkinData list) =
     realm.Write(fun () ->
         for s in skins do
-            let obj = realm.DynamicApi.CreateObject("Skin", Nullable(Guid.NewGuid()))
+            let obj = realm.DynamicApi.CreateObject("Skin", Nullable(s.Id))
             obj.DynamicApi.Set("Name", s.Name)
             obj.DynamicApi.Set("Creator", s.Creator)
             obj.DynamicApi.Set("InstantiationInfo", s.InstantiationInfo)
@@ -433,7 +441,7 @@ let writeScores (realm: Realm) (scores: ScoreData list) =
             |> dict
 
         for s in scores do
-            let obj = realm.DynamicApi.CreateObject("Score", Nullable(Guid.NewGuid()))
+            let obj = realm.DynamicApi.CreateObject("Score", Nullable(s.Id))
             obj.DynamicApi.Set("BeatmapHash", s.BeatmapHash)
             obj.DynamicApi.Set("ClientVersion", s.ClientVersion)
             obj.DynamicApi.Set("Hash", s.Hash)
