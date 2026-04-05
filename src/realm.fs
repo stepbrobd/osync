@@ -73,7 +73,6 @@ let scoreHashesFrom (realm: Realm) : Set<string> =
     |> Seq.map (fun obj -> obj.DynamicApi.Get<string>("Hash"))
     |> Set.ofSeq
 
-
 // --- Intermediate types for full data transfer ---
 
 type FileRef = { Hash: string; Filename: string }
