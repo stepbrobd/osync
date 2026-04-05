@@ -96,13 +96,12 @@ These keys are intentionally excluded from the normal settings diff:
 - `ShowFirstRunSetup`
 - `ShowMobileDisclaimer`
 - `AutomaticallyDownloadMissingBeatmaps`
+- `Skin`
 
-The last key is managed separately by the dedicated auto-download prompt. Since
-osync now transfers beatmap files directly, this setting mainly serves as a
-fallback for maps that were not synced (for example, maps added after the last
-sync). It is not shown again in the normal settings diff, because that just
-creates a second prompt for the same decision and makes it easy to undo
-yourself.
+`AutomaticallyDownloadMissingBeatmaps` is managed separately by the dedicated
+auto-download prompt. `Skin` references a realm object by GUID, which differs
+between machines even when the skin content is the same. Neither is shown in the
+normal settings diff.
 
 When osync writes `game.ini`, it patches in place:
 

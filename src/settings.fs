@@ -8,7 +8,8 @@ let excludedKeys =
           "LastProcessedMetadataId"
           "ShowFirstRunSetup"
           "ShowMobileDisclaimer"
-          "AutomaticallyDownloadMissingBeatmaps" ]
+          "AutomaticallyDownloadMissingBeatmaps"
+          "Skin" ]
 
 type SettingsDiff =
     { Key: string
