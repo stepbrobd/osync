@@ -1,5 +1,6 @@
 module Osync.Ssh
 
+open System
 open System.Diagnostics
 open System.IO
 
@@ -8,18 +9,28 @@ open System.IO
 /// NOT for scp/rsync paths (those use ArgumentList, which bypasses the shell).
 let shellEscape (s: string) : string = "'" + s.Replace("'", "'\\''") + "'"
 
+let private startProcess (psi: ProcessStartInfo) : Process =
+    match Process.Start(psi) with
+    | null -> failwith $"Failed to start {psi.FileName}. Is it installed and in PATH?"
+    | proc -> proc
+
+let private waitWithTimeout (proc: Process) (timeoutMs: int) (name: string) =
+    if not (proc.WaitForExit(timeoutMs)) then
+        proc.Kill()
+        failwith $"{name} timed out after {timeoutMs / 1000}s"
+
 let runRemote (host: string) (command: string) : Result<string, string> =
     let psi =
         ProcessStartInfo("ssh", UseShellExecute = false, RedirectStandardOutput = true, RedirectStandardError = true)
 
     psi.ArgumentList.Add(host)
     psi.ArgumentList.Add(command)
-    use proc = Process.Start(psi)
+    use proc = startProcess psi
 
     let stderrTask = proc.StandardError.ReadToEndAsync()
     let stdout = proc.StandardOutput.ReadToEnd()
     let stderr = stderrTask.Result
-    proc.WaitForExit()
+    waitWithTimeout proc 300_000 "ssh"
 
     match proc.ExitCode with
     | 0 -> Ok(stdout)
@@ -31,13 +42,13 @@ let writeRemoteFile (host: string) (remotePath: string) (content: string) : Resu
 
     psi.ArgumentList.Add(host)
     psi.ArgumentList.Add($"cat > {shellEscape remotePath}")
-    use proc = Process.Start(psi)
+    use proc = startProcess psi
 
     proc.StandardInput.Write(content)
     proc.StandardInput.Close()
 
     let stderr = proc.StandardError.ReadToEnd()
-    proc.WaitForExit()
+    waitWithTimeout proc 60_000 "ssh write"
 
     match proc.ExitCode with
     | 0 -> Ok()
@@ -52,9 +63,9 @@ let private scpFile (src: string) (dest: string) : Result<unit, string> =
 
     psi.ArgumentList.Add(src)
     psi.ArgumentList.Add(dest)
-    use proc = Process.Start(psi)
+    use proc = startProcess psi
     let stderr = proc.StandardError.ReadToEnd()
-    proc.WaitForExit()
+    waitWithTimeout proc 300_000 "scp"
 
     match proc.ExitCode with
     | 0 -> Ok()
@@ -103,9 +114,6 @@ let rsyncFiles
             let srcFilesDir = Path.Combine(srcDataPath, "files")
             let destFilesDir = Path.Combine(destDataPath, "files")
 
-            // Use --rsync-path to cd on the remote side, avoiding space issues
-            // in remote paths. The remote path becomes just "." while the cd
-            // command is interpreted by the remote shell where shellEscape works.
             let (srcFiles, destFiles, extraArgs) =
                 match srcHost, destHost with
                 | Some hostname, None ->
@@ -124,8 +132,8 @@ let rsyncFiles
                 @ [ "--files-from"; listFile; srcFiles; destFiles ] do
                 psi.ArgumentList.Add(arg)
 
-            use proc = Process.Start(psi)
-            proc.WaitForExit()
+            use proc = startProcess psi
+            proc.WaitForExit() // no timeout — rsync can take hours for large transfers
 
             match proc.ExitCode with
             | 0 -> Ok()
