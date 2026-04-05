@@ -8,15 +8,17 @@ open System.IO
 /// NOT for scp/rsync paths (those use ArgumentList, which bypasses the shell).
 let shellEscape (s: string) : string = "'" + s.Replace("'", "'\\''") + "'"
 
-let private startProcess (psi: ProcessStartInfo) : Process =
+let private startProcess (psi: ProcessStartInfo) : Result<Process, string> =
     match Process.Start(psi) with
-    | null -> failwith $"Failed to start {psi.FileName}. Is it installed and in PATH?"
-    | proc -> proc
+    | null -> Error $"Failed to start {psi.FileName}. Is it installed and in PATH?"
+    | proc -> Ok proc
 
-let private waitWithTimeout (proc: Process) (timeoutMs: int) (name: string) =
-    if not (proc.WaitForExit(timeoutMs)) then
+let private waitWithTimeout (proc: Process) (timeoutMs: int) (name: string) : Result<unit, string> =
+    if proc.WaitForExit(timeoutMs) then
+        Ok()
+    else
         proc.Kill()
-        failwith $"{name} timed out after {timeoutMs / 1000}s"
+        Error $"{name} timed out after {timeoutMs / 1000}s"
 
 let runRemote (host: string) (command: string) : Result<string, string> =
     let psi =
@@ -24,16 +26,21 @@ let runRemote (host: string) (command: string) : Result<string, string> =
 
     psi.ArgumentList.Add(host)
     psi.ArgumentList.Add(command)
-    use proc = startProcess psi
 
-    let stderrTask = proc.StandardError.ReadToEndAsync()
-    let stdout = proc.StandardOutput.ReadToEnd()
-    let stderr = stderrTask.Result
-    waitWithTimeout proc 300_000 "ssh"
+    match startProcess psi with
+    | Error e -> Error e
+    | Ok proc ->
+        use proc = proc
+        let stderrTask = proc.StandardError.ReadToEndAsync()
+        let stdout = proc.StandardOutput.ReadToEnd()
+        let stderr = stderrTask.Result
 
-    match proc.ExitCode with
-    | 0 -> Ok(stdout)
-    | _ -> Error(stderr)
+        match waitWithTimeout proc 300_000 "ssh" with
+        | Error e -> Error e
+        | Ok() ->
+            match proc.ExitCode with
+            | 0 -> Ok(stdout)
+            | _ -> Error(stderr)
 
 let writeRemoteFile (host: string) (remotePath: string) (content: string) : Result<unit, string> =
     let psi =
@@ -41,17 +48,22 @@ let writeRemoteFile (host: string) (remotePath: string) (content: string) : Resu
 
     psi.ArgumentList.Add(host)
     psi.ArgumentList.Add($"cat > {shellEscape remotePath}")
-    use proc = startProcess psi
 
-    proc.StandardInput.Write(content)
-    proc.StandardInput.Close()
+    match startProcess psi with
+    | Error e -> Error e
+    | Ok proc ->
+        use proc = proc
+        proc.StandardInput.Write(content)
+        proc.StandardInput.Close()
 
-    let stderr = proc.StandardError.ReadToEnd()
-    waitWithTimeout proc 60_000 "ssh write"
+        let stderr = proc.StandardError.ReadToEnd()
 
-    match proc.ExitCode with
-    | 0 -> Ok()
-    | _ -> Error(stderr)
+        match waitWithTimeout proc 60_000 "ssh write" with
+        | Error e -> Error e
+        | Ok() ->
+            match proc.ExitCode with
+            | 0 -> Ok()
+            | _ -> Error(stderr)
 
 let hashToPath (hash: string) : string =
     Path.Combine(hash.Substring(0, 1), hash.Substring(0, 2), hash)
@@ -62,13 +74,19 @@ let private scpFile (src: string) (dest: string) : Result<unit, string> =
 
     psi.ArgumentList.Add(src)
     psi.ArgumentList.Add(dest)
-    use proc = startProcess psi
-    let stderr = proc.StandardError.ReadToEnd()
-    waitWithTimeout proc 300_000 "scp"
 
-    match proc.ExitCode with
-    | 0 -> Ok()
-    | _ -> Error $"scp failed: {stderr}"
+    match startProcess psi with
+    | Error e -> Error e
+    | Ok proc ->
+        use proc = proc
+        let stderr = proc.StandardError.ReadToEnd()
+
+        match waitWithTimeout proc 300_000 "scp" with
+        | Error e -> Error e
+        | Ok() ->
+            match proc.ExitCode with
+            | 0 -> Ok()
+            | _ -> Error $"scp failed: {stderr}"
 
 let copyRealmToTemp (host: string option) (realmPath: string) : Result<string, string> =
     let tempPath =
@@ -134,12 +152,15 @@ let rsyncFiles
                 @ [ "--files-from"; listFile; srcFiles; destFiles ] do
                 psi.ArgumentList.Add(arg)
 
-            use proc = startProcess psi
-            proc.WaitForExit() // no timeout — rsync can take hours for large transfers
+            match startProcess psi with
+            | Error e -> Error e
+            | Ok proc ->
+                use proc = proc
+                proc.WaitForExit()
 
-            match proc.ExitCode with
-            | 0 -> Ok()
-            | _ -> Error "rsync failed (see output above)"
+                match proc.ExitCode with
+                | 0 -> Ok()
+                | _ -> Error "rsync failed (see output above)"
         finally
             if File.Exists(listFile) then
                 File.Delete(listFile)
