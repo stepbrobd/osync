@@ -73,17 +73,6 @@ let scoreHashesFrom (realm: Realm) : Set<string> =
     |> Seq.map (fun obj -> obj.DynamicApi.Get<string>("Hash"))
     |> Set.ofSeq
 
-let readBeatmapSetIds (dataPath: string) : Set<int> =
-    use realm = openRealm dataPath
-    beatmapSetIdsFrom realm
-
-let readSkinIdentifiers (dataPath: string) : Map<string, string> =
-    use realm = openRealm dataPath
-    skinIdentifiersFrom realm
-
-let readScoreCount (dataPath: string) : int =
-    use realm = openRealm dataPath
-    scoreHashesFrom realm |> Set.count
 
 // --- Intermediate types for full data transfer ---
 
@@ -438,6 +427,11 @@ let writeSkins (realm: Realm) (skins: SkinData list) =
 
 let writeScores (realm: Realm) (scores: ScoreData list) =
     realm.Write(fun () ->
+        let beatmapByHash =
+            realm.DynamicApi.All("Beatmap")
+            |> Seq.map (fun b -> b.DynamicApi.Get<string>("Hash"), b)
+            |> dict
+
         for s in scores do
             let obj = realm.DynamicApi.CreateObject("Score", Nullable(Guid.NewGuid()))
             obj.DynamicApi.Set("BeatmapHash", s.BeatmapHash)
@@ -473,14 +467,9 @@ let writeScores (realm: Realm) (scores: ScoreData list) =
             if ruleset <> null then
                 obj.DynamicApi.Set("Ruleset", RealmValue.Object(ruleset))
 
-            // Link to local beatmap if it exists with matching hash
-            let beatmap =
-                realm.DynamicApi.All("Beatmap")
-                |> Seq.tryFind (fun b -> b.DynamicApi.Get<string>("Hash") = s.BeatmapHash)
-
-            match beatmap with
-            | Some b -> obj.DynamicApi.Set("BeatmapInfo", RealmValue.Object(b))
-            | None -> ()
+            match beatmapByHash.TryGetValue(s.BeatmapHash) with
+            | true, b -> obj.DynamicApi.Set("BeatmapInfo", RealmValue.Object(b))
+            | _ -> ()
 
             writeUser realm obj "User" s.User
             writeFileRefs realm obj s.Files)

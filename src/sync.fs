@@ -23,12 +23,10 @@ let extractLocal (dirOverride: string option) : Result<MachineState, string> =
 
         let settingsPath = Path.Combine(dataPath, "game.ini")
 
-        let beatmapSetIds = Realm.readBeatmapSetIds dataPath
-        let skinIdentifiers = Realm.readSkinIdentifiers dataPath
-
-        let scoreHashes =
+        let (beatmapSetIds, skinIdentifiers, scoreHashes) =
             use realm = Realm.openRealm dataPath
-            Realm.scoreHashesFrom realm
+
+            (Realm.beatmapSetIdsFrom realm, Realm.skinIdentifiersFrom realm, Realm.scoreHashesFrom realm)
 
         let rawLines =
             if File.Exists(settingsPath) then
