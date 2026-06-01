@@ -1,5 +1,10 @@
 # osync!
 
+Binary Cache:
+
+- Cache: <https://cache.ysun.co>
+- Key: `cache.ysun.co-1:WxPYwT5g3kt9XhUhHPpNLZKI9HIOsVVAuqSHpok8Qt4=`
+
 Sync osu! lazer state between machines. It reads the realm database and
 `game.ini`, shows differences, and transfers what is missing.
 
